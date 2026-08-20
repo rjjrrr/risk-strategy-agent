@@ -21,6 +21,8 @@ outputs/**
 test_artifacts/**
 backend/uploads/**
 backend/outputs/**
+backend/model_agent/**
+backend/runtime/**
 !data/.gitkeep
 !outputs/.gitkeep
 !backend/uploads/.gitkeep

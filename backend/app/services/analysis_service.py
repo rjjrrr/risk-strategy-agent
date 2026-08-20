@@ -12,6 +12,7 @@ from ..core.reporter import write_outputs
 from core.analysis_state import STAGES, new_state, mark, stale_downstream, SUCCESS, RUNNING, FAILED, STALE, now
 from core.stability import bootstrap
 from core.rule_deduplicator import deduplicate
+from core.json_utils import sanitize_json
 
 DATASETS={}; STATUS={}
 DEPENDENCIES={"data_health":(),"governance":("data_health",),"variable_scan":("governance",),"candidate_rules":("variable_scan",),"stability":("candidate_rules",),"rule_groups":("candidate_rules",),"grading":("stability","rule_groups"),"report":("grading",)}
@@ -47,7 +48,7 @@ def run_analysis(dataset_id, target="target7", segment_field="is_old"):
 def _internal(ds):
     d=_paths(ds["state"]["dataset_id"])/"internal"; d.mkdir(parents=True,exist_ok=True); return d
 def _save_state(ds):
-    p=_paths(ds["state"]["dataset_id"])/"analysis_state.json"; p.write_text(json.dumps(ds["state"],ensure_ascii=False,indent=2),encoding="utf-8")
+    p=_paths(ds["state"]["dataset_id"])/"analysis_state.json"; p.write_text(json.dumps(sanitize_json(ds["state"]),ensure_ascii=False,indent=2,allow_nan=False),encoding="utf-8")
 def get_state(dataset_id): return get_dataset(dataset_id)["state"]
 def configure(dataset_id,target="target7",segment_field="is_old",application_time_field=None,same_group_jaccard=0.90,similar_jaccard=0.80):
     ds=get_dataset(dataset_id); st=ds["state"]; application_time_field=application_time_field or st["config"].get("application_time_field"); threshold_changed=(st["config"].get("same_group_jaccard")!=same_group_jaccard or st["config"].get("similar_jaccard")!=similar_jaccard); changed=(st["config"].get("target")!=target or st["config"].get("segment_field")!=segment_field or st["config"].get("application_time_field")!=application_time_field or threshold_changed); ds["target"]=target; ds["segment_field"]=segment_field; ds["application_time_field"]=application_time_field; st["config"].update(target=target,segment_field=segment_field,application_time_field=application_time_field,same_group_jaccard=same_group_jaccard,similar_jaccard=similar_jaccard); 

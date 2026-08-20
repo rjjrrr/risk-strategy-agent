@@ -1,0 +1,25 @@
+from __future__ import annotations
+
+from typing import Any, Literal
+from pydantic import BaseModel, Field
+
+ProviderType=Literal["OPENAI","DEEPSEEK","QWEN_OPENAI_COMPATIBLE","ZHIPU_OPENAI_COMPATIBLE","CUSTOM_OPENAI_COMPATIBLE","MOCK"]
+AgentType=Literal["GENERAL_CHAT","SEMANTIC_ANALYSIS","HYPOTHESIS","PLANNER","DIAGNOSIS"]
+
+class LLMBindingInput(BaseModel):
+    display_name:str; provider:ProviderType; base_url:str=""; key_ref:str|None=None; api_key:str|None=Field(default=None,exclude=True)
+    model:str; temperature:float=.2; max_tokens:int=1200; timeout_seconds:float=30; enabled:bool=True; is_default:bool=False; priority:int=100; fallback_binding_id:str|None=None
+
+class SemanticOutput(BaseModel):
+    field:str; business_meaning:str; semantic_role:str; risk_domain:str; possible_relations:list[str]=[]; allowed_feature_ops:list[str]=[]; forbidden_feature_ops:list[str]=[]; confidence:Literal["HIGH","MEDIUM","LOW"]; reason:str
+
+class HypothesisOutput(BaseModel):
+    hypothesis:str; evidence:dict[str,Any]|list[Any]|str; risk_mechanism:str; candidate_feature_ideas:list[dict[str,Any]]=[]; expected_direction:str; confidence:Literal["HIGH","MEDIUM","LOW"]; cost:Literal["LOW","MEDIUM","HIGH"]
+
+class PlannerOutput(BaseModel):
+    next_action:str; selected_hypothesis:str|None=None; reason:str; expected_gain:str|None=None; confidence:Literal["HIGH","MEDIUM","LOW"]; cost:Literal["LOW","MEDIUM","HIGH"]; requires_human:bool=True
+
+class DiagnosisOutput(BaseModel):
+    diagnosis_type:str; evidence:dict[str,Any]|list[Any]|str; severity:str; confidence:Literal["HIGH","MEDIUM","LOW"]; recommended_action:str; rollback_target:str|None=None; requires_human:bool=True
+
+STRUCTURED_SCHEMAS={"SEMANTIC_ANALYSIS":SemanticOutput,"HYPOTHESIS":HypothesisOutput,"PLANNER":PlannerOutput,"DIAGNOSIS":DiagnosisOutput}

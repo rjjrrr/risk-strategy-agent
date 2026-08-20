@@ -7,7 +7,10 @@
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+python backend/run.py
+
+# 或者在项目根目录执行
+python -m backend.app
 ```
 
 V0.5 关键治理：贷后时间与逾期表现字段标记为 `POST_LOAN_FEATURE` / `SUSPECT_LEAKAGE`；数字手机号识别为 `IDENTIFIER`；camelCase 的 `maritalStatus` 不再因包含 `status` 被误杀；小于 300 样本的客群使用更严格 A 级门槛。人工覆盖保存在 `backend/uploads/{dataset_id}/governance_override.json`。
