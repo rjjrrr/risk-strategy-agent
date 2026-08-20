@@ -1,0 +1,65 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+
+# Frontend dependencies and builds
+frontend/node_modules/
+frontend/dist/
+
+# Raw datasets, uploads, analysis outputs and generated test artifacts
+data/**
+outputs/**
+test_artifacts/**
+backend/uploads/**
+backend/outputs/**
+!data/.gitkeep
+!outputs/.gitkeep
+!backend/uploads/.gitkeep
+!backend/outputs/.gitkeep
+
+# Environment variables and local runtime configuration
+.env
+.env.*
+!.env.example
+*.local.json
+config.local.*
+
+# Credentials, tokens, private keys and certificates
+credentials*.json
+credential*.json
+secrets*.json
+secret*.json
+service-account*.json
+api_keys.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+
+# Local databases, logs and temporary files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+tmp/
+temp/
+
+# OS and IDE-local metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

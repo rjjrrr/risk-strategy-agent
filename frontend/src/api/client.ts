@@ -1,0 +1,17 @@
+import axios from 'axios';
+export const api=axios.create({baseURL:'http://localhost:8000'});
+export const upload=(file:File)=>{const d=new FormData();d.append('file',file);return api.post('/api/datasets/upload',d)};
+export const governance=(id:string)=>api.get(`/api/analysis/${id}/governance`,{params:{page:1,page_size:1000}});
+export const patchGovernance=(id:string,field:string,decision:string)=>api.patch(`/api/analysis/${id}/governance/${encodeURIComponent(field)}`,{decision});
+export const runAnalysis=(id:string,target='target7',segment_field='is_old')=>api.post(`/api/analysis/${id}/run`,{target,segment_field});
+export const rules=(id:string,params:any={})=>api.get(`/api/analysis/${id}/rules`,{params});
+export const variable=(id:string,field:string)=>api.get(`/api/analysis/${id}/variables/${encodeURIComponent(field)}`);
+export const overview=(id:string)=>api.get(`/api/analysis/${id}/overview`);
+export const bins=(id:string,field:string,segment:string)=>api.get(`/api/analysis/${id}/variables/${encodeURIComponent(field)}/bins`,{params:{segment}});
+export const groups=(id:string)=>api.get(`/api/analysis/${id}/rule-groups`);
+export const group=(id:string,gid:string)=>api.get(`/api/analysis/${id}/rule-groups/${encodeURIComponent(gid)}`);
+export const groupMatrix=(id:string,segment:string,threshold:number)=>api.get(`/api/analysis/${id}/rule-groups/matrix`,{params:{segment,threshold}});
+export const exportUrl=(id:string,name:string)=>`http://localhost:8000/api/analysis/${id}/export/${name}`;
+export const state=(id:string)=>api.get(`/api/analysis/${id}/state`);
+export const runStage=(id:string,stage:string,config:any={})=>api.post(`/api/analysis/${id}/stages/${stage}/run`,config);
+export const runAll=(id:string,config:any={})=>api.post(`/api/analysis/${id}/run-all`,config);

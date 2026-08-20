@@ -1,0 +1,3 @@
+export type Governance={field:string;semantic_type:string;detected_type:string;valid_rate:number;missing_rate:number;unique_ratio:number;top1_ratio:number;decision:string;reason:string};
+export type Rule={segment:string;grade:string;field:string;rule:string;hit_count:number;bad_count:number;coverage:number;bad_rate:number;base_bad_rate:number;lift:number;bootstrap_positive_ratio:number;warning?:string;review_reason?:string;reason?:string;is_representative?:boolean;rule_group_id?:string;duplicate_group?:string;small_segment?:boolean;missing_rule?:boolean;rare_category?:boolean;oot_status?:string;oot_lift?:number;oot_coverage?:number;dev_lift?:number};
+export type Overview={dataset:any;segments:any;governance:any;rules:any;rule_groups:any};
