@@ -10,6 +10,7 @@ import pandas as pd
 from core.context import ContextBuilder, ContextBundle, ContextRequest
 from core.context.serialization import content_hash
 from core.context.sources import item
+from core.feature_engine.capability import FeatureCapabilityRegistry
 from core.json_utils import sanitize_json
 from .. import config
 from .analysis_service import DATASETS
@@ -74,6 +75,9 @@ def collect(request: ContextRequest, store: Any) -> list[Any]:
     ds = DATASETS[request.dataset_id]; df = ds["df"]; new = _new_frame(ds)
     target = ds.get("target") or ds.get("state", {}).get("config", {}).get("target", "target7")
     rows: list[Any] = []
+    if request.include_feature_engine_capabilities:
+        summary=FeatureCapabilityRegistry().summary()
+        rows.append(item("FEATURE_ENGINE_CAPABILITIES","feature-capability-v1","Feature Engine capability summary",{"supported_operators":summary["operators"],"supported_windows":summary["windows"],"supported_data_sources":summary["data_sources"],"unsupported_examples":summary["unsupported_examples"]},priority="HIGH"))
     if request.include_dataset_summary:
         rows.append(item("DATASET_SUMMARY", request.dataset_id, "NEW dataset summary", {
             "scope": "NEW_ONLY", "total_rows": len(df), "new_rows": len(new), "new_rate": len(new) / len(df) if len(df) else 0,

@@ -33,7 +33,7 @@ def _context(conversation,agent_type,attachments,user_query,context_options=None
     return {'text':b.text,'hash':b.context_hash,'context_id':b.context_id,'summary':summary}
 
 def _tools(ctx):
-    mapping={'DATASET_SUMMARY':'get_dataset_summary','DATA_HEALTH':'get_data_health','GOVERNANCE':'get_governance','VARIABLE_PROFILE':'get_variable_profile','RULE_SUMMARY':'get_rule_summary','RULE_GROUP':'get_rule_groups','FEATURE_REGISTRY':'get_feature_registry','HYPOTHESIS_REGISTRY':'get_hypothesis_registry','EXPERIMENT_HISTORY':'get_experiment_history','MODEL_STATE':'get_model_state','CONVERSATION_MEMORY':'get_conversation_memory','dataset_summary':'get_dataset_summary','rule_groups':'get_rule_groups'}
+    mapping={'DATASET_SUMMARY':'get_dataset_summary','DATA_HEALTH':'get_data_health','GOVERNANCE':'get_governance','VARIABLE_PROFILE':'get_variable_profile','RULE_SUMMARY':'get_rule_summary','RULE_GROUP':'get_rule_groups','FEATURE_REGISTRY':'get_feature_registry','HYPOTHESIS_REGISTRY':'get_hypothesis_registry','EXPERIMENT_HISTORY':'get_experiment_history','MODEL_STATE':'get_model_state','CONVERSATION_MEMORY':'get_conversation_memory','FEATURE_ENGINE_CAPABILITIES':'get_feature_capabilities','dataset_summary':'get_dataset_summary','rule_groups':'get_rule_groups'}
     return [{'tool_name':mapping[x],'arguments_summary':{'dataset_id':ctx['summary'].get('dataset_id')},'result_summary':{'included_in_context':True},'latency_ms':0} for x in ctx['summary'].get('included_sections',[]) if x in mapping]
 
 def _history(cid,limit=8):

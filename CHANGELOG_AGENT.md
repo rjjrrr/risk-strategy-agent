@@ -1,5 +1,33 @@
 # Model Agent Change Log
 
+## Change #046 - Phase 3 acceptance, security, and regression evidence
+
+- Added a repeatable 60k-row acceptance runner using the saved Phase 2 real-LLM proposals, with ignored JSON/NPZ/Registry evidence.
+- Added 28 focused Feature Engine checks covering the required named cases, conditional aggregation, rule-group derivation, explicit user confirmation, API behavior, and context-cache invalidation.
+- Verified strict historical windows, rebuild equality, generated-not-approved status, malicious-expression rejection, and leakage blocking.
+- Verification: 114 backend tests passed; frontend production build passed; `git diff --check` passed; no dynamic formula execution primitives were found.
+- Browser limitation: no controllable browser instance was available for final visual clicking; API/component behavior and production compilation were verified automatically.
+
+## Change #045 - Feature Engine workbench and Agent integration
+
+- Added Feature Engine navigation and Proposal/Spec, Compiled, and Generated tabs with Compile, explicit Generate confirmation, capability-gap detail, execution detail, lineage, and Rebuild controls.
+- Feature Proposal cards can compile through FeatureSpec; neither Analysis Agent nor Decision Agent can execute features.
+- Added the read-only feature-capability summary to Analysis context and invalidated context cache after successful generation.
+- Added FeatureSpec, compile, plan, execution, capability-gap, generated-feature, and rebuild APIs.
+
+## Change #044 - Deterministic execution, lineage, audit, and rebuild
+
+- Added column, historical-window, entity, conditional, rule-group-derived, and composite execution through controlled AST nodes.
+- Historical windows use `t-window <= event_time < t`; same-timestamp and future records are excluded.
+- Added safe-divide policy, missing-policy lineage, sanity statistics, compact NPZ artifacts, execution audit, data/code versions, immutable feature versions, duplicate guard, and rebuild comparison.
+- Successfully generated features remain `GENERATED`; execution never implies model or production approval.
+
+## Change #043 - FeatureSpec, capabilities, DSL, AST, and compiler
+
+- Added the modular `core/feature_engine` package with FeatureSpec, capability registry, proposal normalizer, controlled DSL parser, normalized AST, deterministic compiler, standardized statuses, capability gaps, and error categories.
+- Unknown operators, fields, data sources, entities, windows, leakage fields, raw datetimes, and malicious expressions are rejected before execution.
+- Arbitrary Python, SQL, shell, `eval`, `exec`, subprocess execution, and dynamic import of proposal formulas are not supported.
+
 ## Change #038 - Phase 1 final runtime acceptance
 
 - 目标：以真实 Provider、Mock、多 Agent、多 Binding、SSE、审计和全量回归完成 Phase 1 验收。

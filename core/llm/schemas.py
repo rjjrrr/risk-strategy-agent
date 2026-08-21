@@ -36,6 +36,12 @@ class AnalysisFeatureProposal(BaseModel):
     formula: str; semantic_meaning: str; expected_direction: str; evidence: dict[str,Any]|list[Any]|str
     confidence: Literal["HIGH","MEDIUM","LOW"]
     status: Literal["READY_FOR_COMPILATION","NEEDS_FEATURE_ENGINE","INSUFFICIENT_DATA","LEAKAGE_RISK","REVIEW"]
+    desired_operations: list[str] = Field(default_factory=list)
+    required_data_sources: list[str] = Field(default_factory=list)
+    entity_key: str | None = None
+    time_window: str | None = None
+    application_time_field: str | None = None
+    feature_engine_requirements: dict[str,Any] = Field(default_factory=dict)
 
 class AnalysisOutput(BaseModel):
     analysis_summary: str

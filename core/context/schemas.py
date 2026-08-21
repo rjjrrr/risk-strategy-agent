@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 SourceType = Literal[
     "DATASET_SUMMARY", "DATA_HEALTH", "GOVERNANCE", "VARIABLE_PROFILE",
     "RULE_SUMMARY", "RULE_GROUP", "FEATURE_REGISTRY", "HYPOTHESIS_REGISTRY",
-    "EXPERIMENT_HISTORY", "MODEL_STATE", "CONVERSATION_MEMORY",
+    "EXPERIMENT_HISTORY", "MODEL_STATE", "CONVERSATION_MEMORY", "FEATURE_ENGINE_CAPABILITIES",
 ]
 Priority = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 
@@ -28,6 +28,7 @@ class ContextRequest(BaseModel):
     include_experiments: bool = True
     include_model_state: bool = True
     include_conversation_memory: bool = True
+    include_feature_engine_capabilities: bool = True
     max_context_tokens: int = Field(default=8000, ge=500, le=12000)
     max_items_per_source: int = Field(default=20, ge=1, le=100)
 

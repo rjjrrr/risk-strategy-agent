@@ -45,3 +45,13 @@ export const retryAgentMessage=(cid:string,mid:string,body:any)=>api.post(`/api/
 export const buildAgentContext=(body:any)=>api.post('/api/context/build',body);
 export const getAgentContext=(id:string)=>api.get(`/api/context/${id}`);
 export const getAgentContextPreview=(id:string)=>api.get(`/api/context/${id}/preview`);
+export const featureCapabilities=()=>api.get('/api/feature-engine/capabilities');
+export const featureSpecs=(datasetId:string)=>api.get('/api/feature-specs',{params:{dataset_id:datasetId}});
+export const featureSpecFromProposal=(datasetId:string,proposalId:string)=>api.post(`/api/feature-specs/from-proposal/${proposalId}`,{dataset_id:datasetId});
+export const compileFeature=(datasetId:string,featureSpecId:string,availableDataSources:string[]=['CURRENT_WIDE_TABLE'])=>api.post('/api/feature-engine/compile',{dataset_id:datasetId,feature_spec_id:featureSpecId,available_data_sources:availableDataSources});
+export const featurePlans=(datasetId:string)=>api.get('/api/feature-engine/plans',{params:{dataset_id:datasetId}});
+export const featureExecutions=(datasetId:string)=>api.get('/api/feature-engine/executions',{params:{dataset_id:datasetId}});
+export const featureGaps=(datasetId:string)=>api.get('/api/feature-engine/gaps',{params:{dataset_id:datasetId}});
+export const generatedFeatures=(datasetId:string)=>api.get('/api/features',{params:{dataset_id:datasetId}});
+export const generateFeature=(datasetId:string,planId:string)=>api.post(`/api/feature-engine/execute/${planId}`,{dataset_id:datasetId,user_confirmed:true});
+export const rebuildFeature=(datasetId:string,featureId:string)=>api.post(`/api/features/${featureId}/rebuild`,{dataset_id:datasetId});
