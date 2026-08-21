@@ -10,7 +10,8 @@ from .exceptions import FeatureSpecInvalid
 
 ALIASES={"SAFE_DIVIDE":"SAFE_DIV","SAFEDIV":"SAFE_DIV","MISSING":"MISSING_FLAG","AND":"BOOLEAN_AND"}
 COMPARE={py_ast.Eq:"EQ",py_ast.NotEq:"NE",py_ast.Gt:"GT",py_ast.GtE:"GE",py_ast.Lt:"LT",py_ast.LtE:"LE",py_ast.In:"IN"}
-FORBIDDEN=("__","lambda","import ","from ","df[","system(","subprocess","open(","compile(","globals(","locals(",";","\n")
+FORBIDDEN=("__","lambda","import ","from ","df[","system(","subprocess","open(","compile(","globals(","locals(","getattr(","setattr(","delattr(",";","\n")
+FORBIDDEN_NAMES={"eval","exec","__import__","open","compile","globals","locals","getattr","setattr","delattr"}
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,8 @@ def parse_expression(expression: str) -> Node:
     if not expression or any(x in expression.lower() for x in FORBIDDEN):raise FeatureSpecInvalid("Unsafe or empty feature expression")
     try:root=py_ast.parse(normalize_expression(expression),mode="eval").body
     except (SyntaxError,ValueError) as exc:raise FeatureSpecInvalid("Invalid DSL expression") from exc
+    if any(isinstance(candidate,py_ast.Name) and (candidate.id.lower() in FORBIDDEN_NAMES or candidate.id.startswith("__")) for candidate in py_ast.walk(root)):
+        raise FeatureSpecInvalid("Forbidden name in feature expression")
     return _convert(root)
 
 

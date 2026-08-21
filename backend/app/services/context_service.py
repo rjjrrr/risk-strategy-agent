@@ -127,8 +127,50 @@ def collect(request: ContextRequest, store: Any) -> list[Any]:
     for enabled, source_type, filename, id_key, title_key in registry_specs:
         if not enabled: continue
         for row in _json(root / filename, []):
+            if source_type == "EXPERIMENT_HISTORY" and row.get("split_hash") and row.get("feature_id"):
+                # Feature counterfactuals are exposed only through the bounded aggregate below.
+                continue
             fields = [str(x) for x in row.get("source_fields", [])]
             rows.append(item(source_type, row.get(id_key, content_hash(row)[:12]), f"{source_type}: {row.get(title_key) or row.get(id_key)}", sanitize_json(row), priority="HIGH" if row.get("status") in {"PROPOSED", "APPROVED"} else "MEDIUM", fields=fields, created_at=row.get("updated_at") or row.get("created_at")))
+    if request.include_feature_validation:
+        validations = _json(root / "feature_validation_registry.json", [])
+        latest = {}
+        for row in validations:
+            latest[str(row.get("feature_id"))] = row
+        for feature_id, row in list(latest.items())[-10:]:
+            metrics = row.get("metrics", {})
+            summary = {
+                "feature_id": feature_id, "decision": row.get("decision"),
+                "lr_eligible": row.get("lr_eligible"), "lgbm_eligible": row.get("lgbm_eligible"),
+                "valid_rate": metrics.get("valid_rate"), "lift": metrics.get("lift"), "iv": metrics.get("iv"),
+                "psi": metrics.get("psi"), "novelty": metrics.get("feature_novelty"),
+                "max_correlation": metrics.get("max_existing_correlation"), "warnings": row.get("warnings", []),
+            }
+            rows.append(item("FEATURE_VALIDATION", row.get("validation_id", feature_id), f"Feature validation: {feature_id}", sanitize_json(summary), priority="HIGH"))
+    if request.include_feature_credit:
+        for row in _json(root / "feature_credit_registry.json", [])[-10:]:
+            summary = {key: row.get(key) for key in ("feature_id", "model_type", "performance_credit", "stability_credit", "drift_penalty", "overall_direction", "confidence", "experiment_count", "simplification_candidate")}
+            rows.append(item("FEATURE_CREDIT", row.get("credit_id", row.get("feature_id")), f"Feature credit: {row.get('feature_id')} / {row.get('model_type')}", sanitize_json(summary), priority="HIGH"))
+    if request.include_hypothesis_credit:
+        for row in _json(root / "hypothesis_credit_registry.json", [])[-10:]:
+            summary = {key: row.get(key) for key in ("hypothesis_id", "tested_features", "positive_features", "neutral_features", "negative_features", "best_delta_auc", "best_delta_ks", "best_delta_lift10", "support_status", "confidence")}
+            rows.append(item("HYPOTHESIS_CREDIT", row.get("hypothesis_id"), f"Hypothesis credit: {row.get('hypothesis_id')}", sanitize_json(summary), priority="HIGH"))
+    if request.include_counterfactual_history:
+        experiments = _json(root / "counterfactual_experiments.json", [])
+        finished = [row for row in experiments if row.get("decision") not in {"RUNNING", "FAILED"}]
+        latest = finished[-3:]
+        best = sorted(finished, key=lambda row: row.get("delta_metrics", {}).get("delta_oot_auc", -999), reverse=True)[:3]
+        rejected = {}
+        for row in finished:
+            if row.get("decision") in {"NEGATIVE", "UNSTABLE"}:
+                rejected[row.get("decision")] = rejected.get(row.get("decision"), 0) + 1
+        if experiments:
+            summary = {
+                "latest": [{"experiment_id": x.get("experiment_id"), "feature_id": x.get("feature_id"), "model_type": x.get("model_type"), "decision": x.get("decision"), "delta_metrics": x.get("delta_metrics")} for x in latest],
+                "best": [{"experiment_id": x.get("experiment_id"), "feature_id": x.get("feature_id"), "model_type": x.get("model_type"), "decision": x.get("decision"), "delta_oot_auc": x.get("delta_metrics", {}).get("delta_oot_auc")} for x in best],
+                "rejected_summary": rejected, "total_experiments": len(experiments),
+            }
+            rows.append(item("COUNTERFACTUAL_HISTORY", "counterfactual-summary", "Counterfactual experiment summary", sanitize_json(summary), priority="HIGH"))
     if request.include_model_state:
         state = _json(root / "model_agent_state.json", {})
         if state:

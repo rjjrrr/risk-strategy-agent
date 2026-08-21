@@ -7,6 +7,7 @@ SourceType = Literal[
     "DATASET_SUMMARY", "DATA_HEALTH", "GOVERNANCE", "VARIABLE_PROFILE",
     "RULE_SUMMARY", "RULE_GROUP", "FEATURE_REGISTRY", "HYPOTHESIS_REGISTRY",
     "EXPERIMENT_HISTORY", "MODEL_STATE", "CONVERSATION_MEMORY", "FEATURE_ENGINE_CAPABILITIES",
+    "FEATURE_VALIDATION", "FEATURE_CREDIT", "HYPOTHESIS_CREDIT", "COUNTERFACTUAL_HISTORY",
 ]
 Priority = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 
@@ -29,6 +30,10 @@ class ContextRequest(BaseModel):
     include_model_state: bool = True
     include_conversation_memory: bool = True
     include_feature_engine_capabilities: bool = True
+    include_feature_validation: bool = True
+    include_feature_credit: bool = True
+    include_hypothesis_credit: bool = True
+    include_counterfactual_history: bool = True
     max_context_tokens: int = Field(default=8000, ge=500, le=12000)
     max_items_per_source: int = Field(default=20, ge=1, le=100)
 

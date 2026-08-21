@@ -6,6 +6,8 @@ from typing import Any
 
 from core.model_agent.orchestrator import ModelAgentOrchestrator
 from core.model_agent.registry import utc_now
+from core.counterfactual.audit import FeatureCreditRegistry, HypothesisCreditRegistry
+from core.feature_validation.audit import FeatureValidationRegistry
 
 from .. import config
 from ..json_safe import sanitize_json
@@ -99,6 +101,9 @@ def timeline(dataset_id: str) -> list[dict[str, Any]]:
         ("EXPERIMENT", a.experiments, "experiment_id"),
         ("DIAGNOSIS", a.diagnoses, "diagnosis_id"),
         ("APPROVAL", a.approvals, "approval_id"),
+        ("FEATURE_VALIDATION", FeatureValidationRegistry(a.root), "validation_id"),
+        ("FEATURE_CREDIT", FeatureCreditRegistry(a.root), "credit_id"),
+        ("HYPOTHESIS_CREDIT", HypothesisCreditRegistry(a.root), "credit_id"),
     ):
         for row in registry.all():
             rows.append({"type": kind, "id": row.get(key), "time": row.get("updated_at") or row.get("finished_at") or row.get("created_at"), "status": row.get("status") or row.get("decision"), "title": row.get("description") or row.get("title") or row.get("reason") or row.get(key), "detail": row})

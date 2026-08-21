@@ -44,10 +44,10 @@ class ModelTrainer:
     def train(self, model_type: str, x_dev: pd.DataFrame, y_dev: pd.Series, x_oot: pd.DataFrame, y_oot: pd.Series, model_id: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = params or {}
         if model_type == "LR":
-            estimator = LogisticRegression(penalty=params.get("penalty","l2"),C=params.get("C",1.0),solver="liblinear",max_iter=500,random_state=RANDOM_STATE)
+            estimator = LogisticRegression(penalty=params.get("penalty","l2"),C=params.get("C",1.0),solver="liblinear",max_iter=500,random_state=params.get("random_state",RANDOM_STATE))
             pipeline = Pipeline([("preprocess",_preprocessor(x_dev,True)),("model",estimator)])
         elif model_type == "LGBM":
-            defaults={"n_estimators":160,"learning_rate":.04,"num_leaves":15,"max_depth":5,"min_child_samples":80,"subsample":.8,"colsample_bytree":.8,"reg_alpha":.1,"reg_lambda":1.0,"random_state":RANDOM_STATE,"verbosity":-1}
+            defaults={"n_estimators":160,"learning_rate":.04,"num_leaves":15,"max_depth":5,"min_child_samples":80,"subsample":.8,"colsample_bytree":.8,"reg_alpha":.1,"reg_lambda":1.0,"random_state":params.get("random_state",RANDOM_STATE),"verbosity":-1}
             aliases={"feature_fraction":"colsample_bytree","bagging_fraction":"subsample","lambda_l1":"reg_alpha","lambda_l2":"reg_lambda"}
             params={aliases.get(key,key):value for key,value in params.items()}
             defaults.update(params); estimator=LGBMClassifier(**defaults)

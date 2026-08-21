@@ -17,6 +17,6 @@ class FeatureExecutor:
         node=from_dict(plan.ast);derived=DerivedExecutor(rules)
         def delegate(current,frame):
             if not isinstance(current,OperatorNode):return None
-            return self.window.execute(current,frame,lambda condition:self.column.execute(condition,frame,delegate)) if current.op in self.window.OPS else self.entity.execute(current,frame) if current.op in self.entity.OPS else derived.execute(current,frame) if current.op in derived.OPS else None
+            return self.window.execute(current,frame,lambda condition:self.column.execute(condition,frame,delegate),application_time_field=spec.application_time_field) if current.op in self.window.OPS else self.entity.execute(current,frame) if current.op in self.entity.OPS else derived.execute(current,frame) if current.op in derived.OPS else None
         values=self.column.execute(node,df,delegate)
         return values if isinstance(values,pd.Series) else pd.Series(values,index=df.index)

@@ -55,3 +55,9 @@ export const featureGaps=(datasetId:string)=>api.get('/api/feature-engine/gaps',
 export const generatedFeatures=(datasetId:string)=>api.get('/api/features',{params:{dataset_id:datasetId}});
 export const generateFeature=(datasetId:string,planId:string)=>api.post(`/api/feature-engine/execute/${planId}`,{dataset_id:datasetId,user_confirmed:true});
 export const rebuildFeature=(datasetId:string,featureId:string)=>api.post(`/api/features/${featureId}/rebuild`,{dataset_id:datasetId});
+export const runFeatureValidation=(datasetId:string,featureId:string,timeField?:string)=>api.post(`/api/feature-validation/${featureId}/run`,{dataset_id:datasetId,time_field:timeField});
+export const getFeatureValidation=(datasetId:string,featureId:string)=>api.get(`/api/feature-validation/${featureId}`,{params:{dataset_id:datasetId}});
+export const runFeatureCounterfactual=(datasetId:string,featureId:string,modelType:'LR'|'LGBM',experimentType:'FEATURE_ADD'|'FEATURE_REMOVE'='FEATURE_ADD')=>api.post(`/api/counterfactual/feature/${featureId}`,{dataset_id:datasetId,model_type:modelType,experiment_type:experimentType,seed:42,user_confirmed:true});
+export const getCounterfactualExperiment=(datasetId:string,experimentId:string)=>api.get(`/api/counterfactual/experiments/${experimentId}`,{params:{dataset_id:datasetId}});
+export const getFeatureCredit=(datasetId:string,featureId:string)=>api.get(`/api/features/${featureId}/credit`,{params:{dataset_id:datasetId}});
+export const getHypothesisCredit=(datasetId:string,hypothesisId:string)=>api.get(`/api/hypotheses/${hypothesisId}/credit`,{params:{dataset_id:datasetId}});

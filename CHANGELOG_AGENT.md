@@ -1,5 +1,55 @@
 # Model Agent Change Log
 
+## Change #053 - Phase 1-4 freeze verification
+
+- Phase 4.5 Rerun: executed the complete 15-case diagnostic twice on final code; both runs returned 15 PASS, 0 FAIL, 0 WARNING, 0 BLOCKER, 0 HIGH with identical core decisions.
+- Freeze Verification: Case 07 returned zero mismatches/future/same-time history; Case 10 returned all `INVALID_EXPRESSION`, all non-executable, and zero malicious `NEEDS_NEW_OPERATOR` classifications.
+- Final regression: 162 pytest cases passed; frontend production build passed; `git diff --check`, tracked-source token scan, and runtime/upload/artifact ignore checks passed.
+- Generated `PHASE1_4_FREEZE_REPORT.md` from final diagnostic artifacts. Final decision: `READY_TO_FREEZE`.
+- Current environment has no `ZHIPU_API_KEY`, so real LLM diagnostic remains `NOT_RUN`; Phase 2 real-provider smoke evidence is retained and no Mock was presented as real evidence.
+
+## Change #052 - Phase 4.6 blocker fixes
+
+- Future Window Fix: Window and Entity Window execution now anchor every result to that row's `application_time_field`, use `anchor - window <= event_time < anchor`, and keep `include_same_timestamp=false` for V1.
+- Added row-level Ground Truth coverage for per-application anchors, future/same-time exclusion, multiple applications, out-of-order rows, duplicate timestamps, all supported Window operators, and Entity Window distinct counts.
+- Malicious Expression Classification Fix: expanded pre-capability security rejection so `eval`, `exec`, imports, dynamic builtins, attribute traversal, dunder access, subprocess and DataFrame indexing all return `INVALID_EXPRESSION`; safe unknown operators remain `NEEDS_NEW_OPERATOR`.
+- Window/Leakage focused regression: 11 passed. Malicious classification focused regression: 14 passed. Phase 4.5 Case 07/10 focused acceptance: 3 passed including all Window operator bounds.
+
+## Change #051 - Phase 4.5 diagnostic harness and adversarial acceptance set
+
+- Added deterministic generators for 15 independent 20k-row Phase 1-4 diagnostic datasets, per-case Ground Truth, and two structured Analysis Agent cases.
+- Added a read-only two-pass diagnostic harness covering strong/nonlinear/noise/redundant/drift/leakage/missing-field/composable/malicious/context/duplicate/failure/rebuild/hypothesis scenarios and 60k performance timings.
+- Added artifact schema/report regression tests; raw CSV, model, and diagnostic outputs remain under git-ignored `test_artifacts`.
+- Diagnostic result: 13 PASS, 2 FAIL, 1 BLOCKER; reproducible across both passes; `PHASE_1_4_RELEASE_DECISION=NOT_READY`.
+- Recorded defects without changing production logic: application-time window mismatch (BLOCKER), and safe-but-wrong eval/exec compiler classification (HIGH).
+
+## Change #050 - Phase 4 real-data acceptance and regression evidence
+
+- Added repeatable Phase 4 acceptance using the saved Phase 2 real-LLM `device_risk_weighted_score` proposal and the 60k-row NEW/OLD dataset.
+- Real result: validation `PROMISING`; LGBM counterfactual `POSITIVE`; ΔOOT AUC +0.0340, ΔOOT KS +0.0545, ΔLift@10 +0.2668; Feature Credit `POSITIVE/HIGH`.
+- Added 26 Phase 4 tests covering all required named cases and scenarios A-H, including a real nonlinear interaction where LR is neutral and LightGBM is positive.
+- Final regression: 140 tests passed; frontend production build and `git diff --check` passed; temporal-split/security scan found no random-split or dynamic-code path.
+- Phase 3 was isolated first in commit `00d6aa6`.
+
+## Change #049 - Phase 4 APIs, context memory, and workbench UI
+
+- Added validation, counterfactual experiment, Feature Credit, and Hypothesis Credit APIs with explicit user confirmation for model experiments.
+- Extended the Feature workbench with Run Validation, LR/LGBM tests, remove ablation, experiment preview, Before/After deltas, eligibility, credit, and simplification candidate display.
+- Added bounded Context Builder summaries for FEATURE_VALIDATION, FEATURE_CREDIT, HYPOTHESIS_CREDIT, and COUNTERFACTUAL_HISTORY; no automatic Decision Agent loop was enabled.
+
+## Change #048 - Feature-level counterfactual and experiment feedback
+
+- Added fixed temporal DEV/OOT, fixed seed, fixed preprocessing, and fixed model-parameter LR/LightGBM counterfactual experiments; only the tested feature changes.
+- Added AUC/KS/Lift/Gap/Score PSI/complexity deltas, POSITIVE/NEUTRAL/NEGATIVE/UNSTABLE/REVIEW decisions, confidence, marginal gain, experiment deduplication, and failure audit.
+- Added Feature Remove ablation without automatic deletion; neutral removal creates a pending human `REMOVE_FEATURE_PROPOSAL`.
+- Added separate per-model Feature Credit and aggregated Hypothesis Credit without averaging LR and LightGBM gains.
+
+## Change #047 - Cheap Validation and model eligibility
+
+- Added NEW-only feature validation with variable-specific missing denominators, numeric/category distributions, bad-rate patterns, Lift, IV, PSI, temporal stability, Pearson/Spearman correlation, redundancy, and semantic/AST novelty.
+- Added PROMISING/EXPLORATORY/REVIEW/REJECTED decisions and independent LR/LGBM eligibility reasons; validation never produces a 0-100 score or production approval.
+- Fixed two validation boundary issues found by tests: continuous generated values are not ID-like solely because they are unique, and correlation >=0.95 is LOW novelty.
+
 ## Change #046 - Phase 3 acceptance, security, and regression evidence
 
 - Added a repeatable 60k-row acceptance runner using the saved Phase 2 real-LLM proposals, with ignored JSON/NPZ/Registry evidence.
