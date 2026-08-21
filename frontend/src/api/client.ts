@@ -42,3 +42,6 @@ export const agentProposals=(id:string)=>api.get('/api/agent-chat/proposals',{pa
 export const decideProposal=(id:string,decision:'accept'|'reject')=>api.post(`/api/agent-chat/proposals/${id}/${decision}`);
 export const cancelAgentMessage=(id:string)=>api.post(`/api/agent-chat/messages/${id}/cancel`);
 export const retryAgentMessage=(cid:string,mid:string,body:any)=>api.post(`/api/agent-chat/conversations/${cid}/messages/${mid}/retry`,body);
+export const buildAgentContext=(body:any)=>api.post('/api/context/build',body);
+export const getAgentContext=(id:string)=>api.get(`/api/context/${id}`);
+export const getAgentContextPreview=(id:string)=>api.get(`/api/context/${id}/preview`);

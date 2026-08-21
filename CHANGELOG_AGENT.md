@@ -339,3 +339,46 @@
 - Fixed external-browser access on Windows systems where `localhost` resolves to IPv6 `::1` while the development services listen on IPv4.
 - Pinned the Vite development server to `127.0.0.1:5173` with strict port handling.
 - Made frontend API and download URLs resolve through the browser host and normalize `localhost` to `127.0.0.1`.
+## Change #042 - Phase 2 real Zhipu acceptance and structured JSON compatibility
+
+- Target: complete real-data, real-provider acceptance and close issues discovered during the run.
+- Changes: added a secret-free acceptance runner; requested provider JSON-object mode; safely unwraps Markdown JSON fences before Pydantic validation while retaining the single repair limit.
+- Reason: Zhipu returned valid structured content inside a Markdown code fence, which the strict parser previously rejected after repair.
+- Modules: LLM runtime, provider acceptance, regression coverage.
+- Files: `core/llm/runtime.py`, `scripts/phase2_real_acceptance.py`, `tests/test_context_phase2.py`.
+- Tests: real `glm-4-plus` call over the large mineable dataset plus focused parser tests.
+- Result: 3 hypotheses, 4 feature proposals, 7 pending human proposals, 5,889 estimated context tokens; all five acceptance gates passed.
+- Known issues: provider/network latency is external; the acceptance artifact remains under ignored `test_artifacts/phase2_acceptance`.
+
+## Change #041 - Analysis Workbench context and proposal UI
+
+- Target: expose Context Preview, structured Analysis output, proposal review and context-level trace fields in the existing Chat Workbench.
+- Changes: added source switches, field focus, token budget, preview item counts/source counts; rendered findings and hypotheses as sections; added Save Hypothesis / Save Feature Proposal / Reject controls and validation badges; extended Trace with Context ID/Hash/count/tokens/sources.
+- Reason: Phase 2 evidence and proposals must be inspectable and human-gated rather than hidden in raw JSON.
+- Modules: frontend Agent Chat, API client, styles.
+- Files: `frontend/src/pages/AgentChatPage.tsx`, `frontend/src/api/client.ts`, `frontend/src/agent-chat.css`.
+- Tests: TypeScript and Vite production build.
+- Result: build passed; existing Phase 1 chat controls remain available.
+- Known issues: Vite native-config and bundle-size warnings remain non-blocking.
+
+## Change #040 - Structured Analysis Agent and proposal safety guards
+
+- Target: make Analysis Agent output machine-valid and keep every generated object in proposal-only state.
+- Changes: added Pydantic Analysis schemas and deterministic proposal extraction; added invalid-source, duplicate-feature/hypothesis, leakage and raw-datetime guards; saved accepted objects as `PROPOSED` only; limited recent runtime history to eight messages; added context metadata to message/call audit storage.
+- Reason: LLM output cannot directly mutate feature execution, experiments or models and must preserve evidence/audit lineage.
+- Modules: LLM schemas/prompts/runtime, Chat service/storage/API, Feature/Hypothesis Registry bridge.
+- Files: `core/llm/schemas.py`, `core/llm/prompts.py`, `core/llm/provider.py`, `core/llm/storage.py`, `backend/app/services/agent_chat_service.py`, `backend/app/api/agent_chat.py`.
+- Tests: structured mock flow, proposal guards, Phase 1 compatibility and full regression suite.
+- Result: structured outputs validate; blocked proposals cannot be saved; accepted Phase 2 records remain `PROPOSED` with no feature execution or training.
+- Known issues: none found in local regression.
+
+## Change #039 - Deterministic modular Context Builder
+
+- Target: replace character truncation with a NEW-only, deterministic, budgeted context pipeline.
+- Changes: added unified ContextRequest/ContextItem/ContextBundle schemas; modular collection, compression, ranking, deduplication, stable serialization, soft token budgeting, source-aware top-K and source-state cache invalidation; added build/get/preview APIs and durable ignored context artifacts.
+- Reason: raw character slicing could break JSON, leak excessive detail and allow long conversations or registries to explode prompt size.
+- Modules: Context Builder, dataset/registry/conversation sources, FastAPI context service/router.
+- Files: `core/context/*`, `backend/app/services/context_service.py`, `backend/app/api/context.py`, `backend/app/main.py`, `tests/test_context_phase2.py`.
+- Tests: 100 items per source explosion test, NEW/OLD isolation, cache/preview API, valid JSON and 8,000-token enforcement.
+- Result: deterministic context remains valid JSON and within budget; raw data rows and OLD rule evidence are excluded.
+- Known issues: token estimation is intentionally conservative and dependency-free rather than provider-tokenizer exact.

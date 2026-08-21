@@ -22,4 +22,27 @@ class PlannerOutput(BaseModel):
 class DiagnosisOutput(BaseModel):
     diagnosis_type:str; evidence:dict[str,Any]|list[Any]|str; severity:str; confidence:Literal["HIGH","MEDIUM","LOW"]; recommended_action:str; rollback_target:str|None=None; requires_human:bool=True
 
-STRUCTURED_SCHEMAS={"SEMANTIC_ANALYSIS":SemanticOutput,"HYPOTHESIS":HypothesisOutput,"PLANNER":PlannerOutput,"DIAGNOSIS":DiagnosisOutput}
+class AnalysisFinding(BaseModel):
+    title: str; finding_type: str; evidence: dict[str,Any]|list[Any]|str; interpretation: str
+    confidence: Literal["HIGH","MEDIUM","LOW"]; source_ids: list[str] = Field(default_factory=list)
+
+class AnalysisHypothesis(BaseModel):
+    title: str; risk_mechanism: str; evidence: dict[str,Any]|list[Any]|str
+    source_fields: list[str] = Field(default_factory=list); expected_direction: str
+    confidence: Literal["HIGH","MEDIUM","LOW"]; estimated_cost: Literal["LOW","MEDIUM","HIGH"]
+
+class AnalysisFeatureProposal(BaseModel):
+    feature_name: str; feature_type: str; source_fields: list[str] = Field(default_factory=list)
+    formula: str; semantic_meaning: str; expected_direction: str; evidence: dict[str,Any]|list[Any]|str
+    confidence: Literal["HIGH","MEDIUM","LOW"]
+    status: Literal["READY_FOR_COMPILATION","NEEDS_FEATURE_ENGINE","INSUFFICIENT_DATA","LEAKAGE_RISK","REVIEW"]
+
+class AnalysisOutput(BaseModel):
+    analysis_summary: str
+    semantic_findings: list[AnalysisFinding] = Field(default_factory=list)
+    hypotheses: list[AnalysisHypothesis] = Field(default_factory=list)
+    feature_proposals: list[AnalysisFeatureProposal] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    missing_information: list[str] = Field(default_factory=list)
+
+STRUCTURED_SCHEMAS={"ANALYSIS_AGENT":AnalysisOutput,"SEMANTIC_ANALYSIS":SemanticOutput,"HYPOTHESIS":HypothesisOutput,"PLANNER":PlannerOutput,"DIAGNOSIS":DiagnosisOutput}

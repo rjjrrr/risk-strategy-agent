@@ -5,7 +5,7 @@ from typing import Any
 from core.json_utils import sanitize_json
 from core.model_agent.registry import utc_now
 
-JSON_FIELDS={'attachments','tool_calls','proposal_ids','payload','context_summary'}
+JSON_FIELDS={'attachments','tool_calls','proposal_ids','payload','context_summary','sources_used'}
 class ChatStore:
     def __init__(self,path:str|Path):self.path=Path(path);self.path.parent.mkdir(parents=True,exist_ok=True);self.lock=threading.RLock();self._init()
     def connect(self):c=sqlite3.connect(self.path,timeout=20,check_same_thread=False);c.row_factory=sqlite3.Row;return c
@@ -13,13 +13,21 @@ class ChatStore:
         with self.connect() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS conversations(conversation_id TEXT PRIMARY KEY,title TEXT,agent_type TEXT,default_binding_id TEXT,dataset_id TEXT,experiment_id TEXT,state_id TEXT,created_at TEXT,updated_at TEXT,archived INTEGER DEFAULT 0);
-            CREATE TABLE IF NOT EXISTS messages(message_id TEXT PRIMARY KEY,conversation_id TEXT,role TEXT,content TEXT,attachments TEXT,agent_type TEXT,binding_id TEXT,provider TEXT,model TEXT,prompt_version TEXT,tool_calls TEXT,proposal_ids TEXT,latency_ms INTEGER,prompt_tokens INTEGER,completion_tokens INTEGER,total_tokens INTEGER,status TEXT,error TEXT,parent_message_id TEXT,execution_mode TEXT,runtime_type TEXT,created_at TEXT);
-            CREATE TABLE IF NOT EXISTS llm_calls(call_id TEXT PRIMARY KEY,conversation_id TEXT,message_id TEXT,agent_type TEXT,provider TEXT,binding_id TEXT,model TEXT,prompt_version TEXT,input_context_hash TEXT,context_summary TEXT,latency_ms INTEGER,prompt_tokens INTEGER,completion_tokens INTEGER,total_tokens INTEGER,success INTEGER,error_type TEXT,error_summary TEXT,state_id TEXT,experiment_id TEXT,router_decision_reason TEXT,execution_mode TEXT,runtime_type TEXT,created_at TEXT);
+            CREATE TABLE IF NOT EXISTS messages(message_id TEXT PRIMARY KEY,conversation_id TEXT,role TEXT,content TEXT,attachments TEXT,agent_type TEXT,binding_id TEXT,provider TEXT,model TEXT,prompt_version TEXT,tool_calls TEXT,proposal_ids TEXT,latency_ms INTEGER,prompt_tokens INTEGER,completion_tokens INTEGER,total_tokens INTEGER,status TEXT,error TEXT,parent_message_id TEXT,execution_mode TEXT,runtime_type TEXT,context_id TEXT,context_hash TEXT,structured_output_status TEXT,created_at TEXT);
+            CREATE TABLE IF NOT EXISTS llm_calls(call_id TEXT PRIMARY KEY,conversation_id TEXT,message_id TEXT,agent_type TEXT,provider TEXT,binding_id TEXT,model TEXT,prompt_version TEXT,input_context_hash TEXT,context_summary TEXT,latency_ms INTEGER,prompt_tokens INTEGER,completion_tokens INTEGER,total_tokens INTEGER,success INTEGER,error_type TEXT,error_summary TEXT,state_id TEXT,experiment_id TEXT,router_decision_reason TEXT,execution_mode TEXT,runtime_type TEXT,context_id TEXT,context_items_count INTEGER,estimated_context_tokens INTEGER,sources_used TEXT,created_at TEXT);
             CREATE TABLE IF NOT EXISTS agent_proposals(proposal_id TEXT PRIMARY KEY,conversation_id TEXT,message_id TEXT,proposal_type TEXT,title TEXT,payload TEXT,reason TEXT,requires_human INTEGER,status TEXT,registry_object_id TEXT,created_at TEXT,updated_at TEXT);
             ''')
             for table in ('messages','llm_calls'):
                 columns={row['name'] for row in c.execute(f'PRAGMA table_info({table})')}
                 if 'runtime_type' not in columns:c.execute(f'ALTER TABLE {table} ADD COLUMN runtime_type TEXT')
+            additions={
+                'messages':{'context_id':'TEXT','context_hash':'TEXT','structured_output_status':'TEXT'},
+                'llm_calls':{'context_id':'TEXT','context_items_count':'INTEGER','estimated_context_tokens':'INTEGER','sources_used':'TEXT'},
+            }
+            for table,spec in additions.items():
+                columns={row['name'] for row in c.execute(f'PRAGMA table_info({table})')}
+                for name,kind in spec.items():
+                    if name not in columns:c.execute(f'ALTER TABLE {table} ADD COLUMN {name} {kind}')
     def _decode(self,row):
         if row is None:return None
         out=dict(row)
@@ -51,7 +59,7 @@ class ChatStore:
         return self.conversation(cid)
     def delete_conversation(self,cid):return self.update_conversation(cid,{'archived':1})
     def add_message(self,**values):
-        row={'message_id':values.get('message_id') or f"M_{uuid.uuid4().hex[:12]}",'conversation_id':values['conversation_id'],'role':values['role'],'content':values.get('content',''),'attachments':values.get('attachments',[]),'agent_type':values.get('agent_type'),'binding_id':values.get('binding_id'),'provider':values.get('provider'),'model':values.get('model'),'prompt_version':values.get('prompt_version'),'tool_calls':values.get('tool_calls',[]),'proposal_ids':values.get('proposal_ids',[]),'latency_ms':values.get('latency_ms'),'prompt_tokens':values.get('prompt_tokens'),'completion_tokens':values.get('completion_tokens'),'total_tokens':values.get('total_tokens'),'status':values.get('status','PENDING'),'error':values.get('error'),'parent_message_id':values.get('parent_message_id'),'execution_mode':values.get('execution_mode'),'runtime_type':values.get('runtime_type'),'created_at':utc_now()};self._insert('messages',row);return self._decode(row)
+        row={'message_id':values.get('message_id') or f"M_{uuid.uuid4().hex[:12]}",'conversation_id':values['conversation_id'],'role':values['role'],'content':values.get('content',''),'attachments':values.get('attachments',[]),'agent_type':values.get('agent_type'),'binding_id':values.get('binding_id'),'provider':values.get('provider'),'model':values.get('model'),'prompt_version':values.get('prompt_version'),'tool_calls':values.get('tool_calls',[]),'proposal_ids':values.get('proposal_ids',[]),'latency_ms':values.get('latency_ms'),'prompt_tokens':values.get('prompt_tokens'),'completion_tokens':values.get('completion_tokens'),'total_tokens':values.get('total_tokens'),'status':values.get('status','PENDING'),'error':values.get('error'),'parent_message_id':values.get('parent_message_id'),'execution_mode':values.get('execution_mode'),'runtime_type':values.get('runtime_type'),'context_id':values.get('context_id'),'context_hash':values.get('context_hash'),'structured_output_status':values.get('structured_output_status'),'created_at':utc_now()};self._insert('messages',row);return self._decode(row)
     def messages(self,cid):
         with self.connect() as c:return [self._decode(x) for x in c.execute("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at",(cid,))]
     def update_message(self,mid,changes):

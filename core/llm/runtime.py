@@ -9,6 +9,14 @@ from .prompts import PromptRegistry
 from .schemas import STRUCTURED_SCHEMAS
 
 DEFAULT_URLS={'OPENAI':'https://api.openai.com/v1','DEEPSEEK':'https://api.deepseek.com/v1','QWEN_OPENAI_COMPATIBLE':'https://dashscope.aliyuncs.com/compatible-mode/v1','ZHIPU_OPENAI_COMPATIBLE':'https://open.bigmodel.cn/api/paas/v4'}
+def _json_object(text:str):
+    value=text.strip()
+    if value.startswith('```'):
+        value=value.split('\n',1)[1] if '\n' in value else value[3:]
+        if value.rstrip().endswith('```'):value=value.rstrip()[:-3]
+    start,end=value.find('{'),value.rfind('}')
+    if start<0 or end<start:raise ValueError('No JSON object found')
+    return json.loads(value[start:end+1])
 class LLMRuntime:
     def __init__(self,bindings:BindingStore,prompts:PromptRegistry):self.bindings=bindings;self.prompts=prompts
     def _provider(self,binding):
@@ -27,18 +35,19 @@ class LLMRuntime:
     def chat(self,agent_type,history,binding_id=None,context=''):
         binding,provider,reason=self.resolve(binding_id,agent_type);prompt,messages=self.messages(agent_type,history,context)
         fallback_used=False
-        try:result=provider.chat(messages,model=binding['model'],temperature=binding['temperature'],max_tokens=binding['max_tokens'])
+        response_format={'type':'json_object'} if agent_type in STRUCTURED_SCHEMAS else None
+        try:result=provider.chat(messages,model=binding['model'],temperature=binding['temperature'],max_tokens=binding['max_tokens'],response_format=response_format)
         except Exception as primary_error:
             fallback_id=binding.get('fallback_binding_id')
             if not fallback_id:raise
-            primary=binding;binding,provider,_=self.resolve(fallback_id,agent_type);result=provider.chat(messages,model=binding['model'],temperature=binding['temperature'],max_tokens=binding['max_tokens']);reason=f"Primary {primary['binding_id']} failed ({getattr(primary_error,'code','PROVIDER_ERROR')}); configured fallback {binding['binding_id']} used";fallback_used=True
+            primary=binding;binding,provider,_=self.resolve(fallback_id,agent_type);result=provider.chat(messages,model=binding['model'],temperature=binding['temperature'],max_tokens=binding['max_tokens'],response_format=response_format);reason=f"Primary {primary['binding_id']} failed ({getattr(primary_error,'code','PROVIDER_ERROR')}); configured fallback {binding['binding_id']} used";fallback_used=True
         parsed=None;repair=False
         if agent_type in STRUCTURED_SCHEMAS:
-            try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(json.loads(result['content'])).model_dump()
+            try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(_json_object(result['content'])).model_dump()
             except (ValueError,ValidationError):
                 repair=True;repair_messages=messages+[{'role':'assistant','content':result['content']},{'role':'user','content':'Repair the previous answer into valid JSON matching the required schema. Return JSON only.'}]
-                repaired=provider.chat(repair_messages,model=binding['model'],temperature=0,max_tokens=binding['max_tokens']);result=repaired
-                try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(json.loads(result['content'])).model_dump()
+                repaired=provider.chat(repair_messages,model=binding['model'],temperature=0,max_tokens=binding['max_tokens'],response_format={'type':'json_object'});result=repaired
+                try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(_json_object(result['content'])).model_dump()
                 except (ValueError,ValidationError) as e:raise InvalidResponse('Structured response failed validation after one repair attempt') from e
         return {'binding':binding,'prompt':prompt,'router_decision_reason':reason,'result':result,'structured':parsed,'repair_attempted':repair,'fallback_used':fallback_used}
     def stream(self,agent_type,history,binding_id=None,context=''):

@@ -9,7 +9,10 @@ from ..services import agent_chat_service as service
 
 llm_router=APIRouter(prefix='/api/llm',tags=['llm-bindings']);chat_router=APIRouter(prefix='/api/agent-chat',tags=['agent-chat'])
 class ConversationInput(BaseModel):title:str='New chat';agent_type:str='GENERAL_CHAT';default_binding_id:str|None=None;dataset_id:str|None=None;experiment_id:str|None=None;state_id:str|None=None
-class MessageInput(BaseModel):content:str;agent_type:str|None=None;binding_id:str|None=None;attachments:list[dict[str,Any]]=Field(default_factory=list);parent_message_id:str|None=None
+class MessageInput(BaseModel):
+    content:str;agent_type:str|None=None;binding_id:str|None=None
+    attachments:list[dict[str,Any]]=Field(default_factory=list);parent_message_id:str|None=None
+    context_options:dict[str,Any]=Field(default_factory=dict);focus_fields:list[str]=Field(default_factory=list)
 class DecisionInput(BaseModel):decision:str
 
 def guard(fn):
@@ -52,7 +55,7 @@ def message_stream(cid:str,body:MessageInput):return StreamingResponse(service.s
 @chat_router.post('/messages/{mid}/cancel')
 def cancel(mid:str):return {'cancelled':service.cancel(mid)}
 @chat_router.post('/conversations/{cid}/messages/{mid}/retry')
-def retry(cid:str,mid:str,body:MessageInput):return guard(lambda:service.send(cid,body.content,body.agent_type,body.binding_id,body.attachments,mid))
+def retry(cid:str,mid:str,body:MessageInput):return guard(lambda:service.send(cid,body.content,body.agent_type,body.binding_id,body.attachments,mid,body.context_options,body.focus_fields))
 @chat_router.get('/proposals')
 def proposals(conversation_id:str|None=None):return service.store.proposals(conversation_id)
 @chat_router.post('/proposals/{pid}/accept')
