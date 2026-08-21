@@ -41,3 +41,4 @@ export const agentCalls=(id:string)=>api.get('/api/agent-chat/calls',{params:{co
 export const agentProposals=(id:string)=>api.get('/api/agent-chat/proposals',{params:{conversation_id:id}});
 export const decideProposal=(id:string,decision:'accept'|'reject')=>api.post(`/api/agent-chat/proposals/${id}/${decision}`);
 export const cancelAgentMessage=(id:string)=>api.post(`/api/agent-chat/messages/${id}/cancel`);
+export const retryAgentMessage=(cid:string,mid:string,body:any)=>api.post(`/api/agent-chat/conversations/${cid}/messages/${mid}/retry`,body);

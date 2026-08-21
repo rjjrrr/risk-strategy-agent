@@ -47,7 +47,7 @@ class BindingStore:
         if not r:raise KeyError(binding_id)
         return dict(r)
     def public(self,row):
-        out={**row};secret=SessionSecretStore.get(out.get('key_ref'));out['enabled']=bool(out.get('enabled'));out['is_default']=bool(out.get('is_default'));out['api_key_plaintext']=secret;out['api_key_masked']=secret;out['has_secret']=bool(secret);return out
+        out={**row};secret=SessionSecretStore.get(out.get('key_ref'));out['enabled']=bool(out.get('enabled'));out['is_default']=bool(out.get('is_default'));out['api_key_masked']=mask_secret(secret);out['has_secret']=bool(secret);return out
     def update(self,binding_id,changes):
         allowed={'display_name','provider','base_url','key_ref','model','temperature','max_tokens','timeout_seconds','enabled','is_default','priority','fallback_binding_id'}; api_key=changes.pop('api_key',None)
         if api_key:

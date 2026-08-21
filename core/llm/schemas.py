@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 ProviderType=Literal["OPENAI","DEEPSEEK","QWEN_OPENAI_COMPATIBLE","ZHIPU_OPENAI_COMPATIBLE","CUSTOM_OPENAI_COMPATIBLE","MOCK"]
-AgentType=Literal["GENERAL_CHAT","SEMANTIC_ANALYSIS","HYPOTHESIS","PLANNER","DIAGNOSIS"]
+AgentType=Literal["GENERAL_CHAT","ANALYSIS_AGENT","DECISION_AGENT"]
 
 class LLMBindingInput(BaseModel):
     display_name:str; provider:ProviderType; base_url:str=""; key_ref:str|None=None; api_key:str|None=Field(default=None,exclude=True)

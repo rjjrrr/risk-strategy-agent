@@ -1,5 +1,72 @@
 # Model Agent Change Log
 
+## Change #038 - Phase 1 final runtime acceptance
+
+- 目标：以真实 Provider、Mock、多 Agent、多 Binding、SSE、审计和全量回归完成 Phase 1 验收。
+- 修改：无新增运行逻辑；记录最终验收证据与现场限制。
+- 原因：真实 LLM Smoke 不得由 Mock 或静态测试代替，失败尝试也必须如实留痕。
+- 影响模块：Agent Chat Runtime、Binding、Trace、测试与构建。
+- 文件：`CHANGELOG_AGENT.md`。
+- 测试：真实智谱 `glm-4-plus` General/Analysis/Decision 三 Agent PASS；General 精确返回 `AGENT_CHAT_CONNECTED`；Prompt 分别为 `general_v1`、`analysis_agent_v1`、`decision_agent_v1`；真实 SSE `start/delta/done` PASS；真实/Mock Binding 历史隔离 PASS；全量 `pytest` 79 passed；`npm run build` PASS；Python compile PASS。
+- 结果：Phase 1 后端、构建和结构验收通过；真实调用均为 `runtime_type=LLM`，Trace 含 Provider/Binding/Model/Prompt/Latency/Tokens/Call ID；Mock 调用明确为 `MOCK`。
+- 已知问题：当前 Codex 会话没有可连接浏览器实例，鼠标滚轮、触控板和视觉 Drawer 现场测试未执行；已由 CSS 高度链与状态逻辑自动测试覆盖，但不能替代最终人工演示。开发模式 `uvicorn --reload` 在受限执行环境中无法访问外网，真实 Smoke 使用无热重载单进程 uvicorn 完成。
+
+## Change #037 - Phase 1 deterministic failure identity and acceptance naming
+
+- 目标：保证“没有实际 Provider 调用”的失败也有合法 Runtime 标识，并让验收测试名称与 Phase 1 清单一一对应。
+- 修改：无 Binding 的本地校验失败标记为 `DETERMINISTIC`；测试改名为 `test_no_binding_no_mock_fallback`、`test_switch_binding_history`、`test_switch_agent_history`；滚动结构断言扩展到侧栏、Drawer、Streaming 会话隔离和 near-bottom 条件。
+- 原因：失败前没有选中 Provider 时不得误标成 LLM，验收证据需要可直接检索。
+- 影响模块：Agent Chat Service、Phase 1 tests。
+- 文件：`backend/app/services/agent_chat_service.py`、`tests/test_llm_chat_v11.py`。
+- 测试：全量 pytest 79 passed；npm build PASS；Python compile PASS。
+- 结果：通过。
+- 已知问题：无浏览器实例，滚轮/触控板现场测试仍未执行。
+
+## Change #036 - Phase 1 Chat acceptance regression coverage
+
+- 目标：把 Runtime、Trace、切换历史、无 Mock 回退、Stop、Retry、错误呈现和滚动结构固化为回归测试。
+- 修改：更新密钥掩码断言；新增三 Agent Prompt、逐消息 runtime/trace、Binding/Agent 历史、取消保留内容与审计、Retry 不覆盖原消息、错误映射及 CSS 高度链断言。
+- 原因：Phase 1 的稳定性要求必须由自动化证据覆盖，不能只依赖人工页面观察。
+- 影响模块：Agent Chat 后端与前端结构验收。
+- 文件：`tests/test_llm_chat_v11.py`。
+- 测试：待执行 Chat 定向测试、全量 pytest 与 npm build。
+- 结果：测试已编写，待运行。
+- 已知问题：滚轮/触控板仍需要可用浏览器实例做最终现场测试。
+
+## Change #035 - Phase 1 Chat scroll layout and message-level controls
+
+- 目标：让消息区成为唯一主滚动容器，并完成智能滚底、逐消息 Trace、三 Agent/Model 分离、Stop/Retry 与友好错误交互。
+- 修改：重建 Chat 高度链为 `100vh → flex(min-height:0) → chat-main → chat-messages`；Header/Composer 固定；消息区独立 `overflow-y:auto`；增加 120px near-bottom 判断与“Back to bottom”；切会话会取消旧 Stream；Trace 按 Message 打开；Agent 收敛为 General/Analysis/Decision；Binding 仅列有效项；新增真实 Retry 调用、Rename、Zhipu 选项与密钥掩码展示。
+- 原因：原 Grid 子项按内容最小高度撑开，`.messages` 没有形成真实滚动框；无脑 `scrollIntoView` 会强制打断历史阅读。
+- 影响模块：Agent Chat 页面、布局 CSS、前端 API Client。
+- 文件：`frontend/src/pages/AgentChatPage.tsx`、`frontend/src/agent-chat.css`、`frontend/src/api/client.ts`、`backend/app/services/agent_chat_service.py`。
+- 测试：待 TypeScript build、后端测试、结构断言与浏览器 smoke。
+- 结果：实现完成，用户上翻后停止自动跟随，点击按钮恢复跟随。
+- 修正：首次 TypeScript 编译发现 Binding 动态字段对象少一个闭合括号，已立即修复并重新进入构建验证。
+- 已知问题：当前会话没有可连接浏览器实例，真实鼠标滚轮现场测试待环境恢复后执行。
+
+## Change #034 - Phase 1 streaming audit and cancellation persistence
+
+- 目标：让同步/流式调用共享真实 Runtime 标识、错误元数据和可追溯取消状态。
+- 修改：审计统一写入 `runtime_type`；流式消息逐块保存已生成内容；Stop 立即标记 `CANCELLED`，随后保存 Trace；流式成功补存 token usage；失败调用保留选定 Binding/Provider/Model/Prompt。
+- 原因：Mock 不得伪装成 LLM，用户停止后内容不得消失，Provider 失败也必须可审计。
+- 影响模块：Agent Chat Service、SQLite Message/Call Log。
+- 文件：`backend/app/services/agent_chat_service.py`。
+- 测试：待补充 runtime、trace、cancel、error、retry 与切换历史测试。
+- 结果：后端实现完成，待自动化与真实 API 验收。
+- 已知问题：Provider 不返回 usage 时继续保存 `NULL`，前端应显示 N/A。
+
+## Change #033 - Phase 1 runtime identity and three-mode contract
+
+- 目标：收敛 Agent Chat 为 General / Analysis / Decision 三个只读入口，并让每次真实或测试调用可被明确审计。
+- 修改：新增 `ANALYSIS_AGENT` 与 `DECISION_AGENT` 独立 Prompt；Agent 公共类型收敛为三个 Mode；Message 与 LLM Call 增加可迁移的 `runtime_type` 字段；Binding API 恢复密钥掩码，禁止完整回显。
+- 原因：Agent 决定任务与 Prompt，Binding 决定 Provider/Model；`LLM`、`MOCK`、`DETERMINISTIC` 必须真实可辨识，密钥不得出现在响应中。
+- 影响模块：LLM Schema、Prompt Registry、Binding Store、Chat SQLite Schema。
+- 文件：`core/llm/schemas.py`、`core/llm/prompts.py`、`core/llm/bindings.py`、`core/llm/storage.py`。
+- 测试：待本阶段后端回归、真实 LLM Smoke 与前端构建统一验收。
+- 结果：代码结构已完成，待后续步骤验证。
+- 已知问题：旧五类内部 Prompt 继续保留用于兼容既有记录，但不再作为前端用户入口。
+
 ## Change #032 - Local Zhipu default binding and plaintext display
 
 - Added `ZHIPU_OPENAI_COMPATIBLE` with the official OpenAI-compatible API base URL.

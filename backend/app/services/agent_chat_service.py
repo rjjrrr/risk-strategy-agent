@@ -8,6 +8,7 @@ from core.llm.context import AgentContextBuilder
 from core.llm.exceptions import LLMError
 from core.llm.prompts import PromptRegistry
 from core.llm.runtime import LLMRuntime
+from core.llm.schemas import STRUCTURED_SCHEMAS
 from core.llm.storage import ChatStore
 from core.model_agent.registry import FeatureRegistry,HypothesisRegistry
 from core.model_agent.registry import utc_now
@@ -43,37 +44,50 @@ def _proposal(agent_type,conversation,message,structured):
     if agent_type=='HYPOTHESIS':
         for feature in structured.get('candidate_feature_ideas',[])[:5]:rows.append(store.add_proposal(conversation_id=conversation['conversation_id'],message_id=message['message_id'],proposal_type='FEATURE_CANDIDATE',title=feature.get('feature_name','Feature candidate'),payload=feature,reason=structured.get('risk_mechanism',''),requires_human=True))
     return rows
-def _audit(conversation,message,agent_type,binding,prompt,ctx,started,success,error=None,router_reason=None,usage=None,execution_mode=None):
-    code,summary=_error(error) if error else (None,None);usage=usage or {}
-    return store.add_call(conversation_id=conversation['conversation_id'],message_id=message['message_id'],agent_type=agent_type,provider=binding.get('provider') if binding else None,binding_id=binding.get('binding_id') if binding else None,model=binding.get('model') if binding else None,prompt_version=prompt.get('prompt_id') if prompt else None,input_context_hash=ctx['hash'],context_summary=ctx['summary'],latency_ms=round((time.perf_counter()-started)*1000),prompt_tokens=usage.get('prompt_tokens'),completion_tokens=usage.get('completion_tokens'),total_tokens=usage.get('total_tokens'),success=success,error_type=code,error_summary=summary,state_id=conversation.get('state_id'),experiment_id=conversation.get('experiment_id'),router_decision_reason=router_reason,execution_mode=execution_mode)
+def _selected_metadata(binding_id,agent_type):
+    try:
+        selected=prompts.default_binding(agent_type) if binding_id in (None,'AUTO_ROUTER') else binding_id
+        binding=bindings.resolve(selected)[0]
+    except Exception:binding=None
+    try:prompt=prompts.get(agent_type)
+    except Exception:prompt=None
+    return binding,prompt
+
+def _runtime_type(binding,response=None):
+    response=response or {}
+    return response.get('runtime_type') or response.get('execution_mode') or ('DETERMINISTIC' if not binding else 'MOCK' if binding.get('provider')=='MOCK' else 'LLM')
+
+def _audit(conversation,message,agent_type,binding,prompt,ctx,started,success,error=None,router_reason=None,usage=None,runtime_type=None,error_type=None,error_summary=None):
+    code,summary=_error(error) if error else (error_type,error_summary);usage=usage or {}
+    return store.add_call(conversation_id=conversation['conversation_id'],message_id=message['message_id'],agent_type=agent_type,provider=binding.get('provider') if binding else None,binding_id=binding.get('binding_id') if binding else None,model=binding.get('model') if binding else None,prompt_version=prompt.get('prompt_id') if prompt else None,input_context_hash=ctx['hash'],context_summary=ctx['summary'],latency_ms=round((time.perf_counter()-started)*1000),prompt_tokens=usage.get('prompt_tokens'),completion_tokens=usage.get('completion_tokens'),total_tokens=usage.get('total_tokens'),success=success,error_type=code,error_summary=summary,state_id=conversation.get('state_id'),experiment_id=conversation.get('experiment_id'),router_decision_reason=router_reason,execution_mode=runtime_type,runtime_type=runtime_type)
 
 def send(cid,content,agent_type=None,binding_id=None,attachments=None,parent_message_id=None):
     conv=store.conversation(cid);agent_type=agent_type or conv['agent_type'];binding_id=binding_id or conv.get('default_binding_id');attachments=attachments or [];store.update_conversation(cid,{'agent_type':agent_type,'default_binding_id':binding_id})
-    user=store.add_message(conversation_id=cid,role='user',content=content,attachments=attachments,agent_type=agent_type,status='SUCCESS',parent_message_id=parent_message_id);assistant=store.add_message(conversation_id=cid,role='assistant',agent_type=agent_type,status='PENDING',parent_message_id=parent_message_id);ctx=_context(conv,agent_type,attachments);started=time.perf_counter();binding=prompt=None
+    user=store.add_message(conversation_id=cid,role='user',content=content,attachments=attachments,agent_type=agent_type,status='SUCCESS',parent_message_id=parent_message_id);assistant=store.add_message(conversation_id=cid,role='assistant',agent_type=agent_type,status='PENDING',parent_message_id=parent_message_id);ctx=_context(conv,agent_type,attachments);started=time.perf_counter();binding,prompt=_selected_metadata(binding_id,agent_type)
     try:
-        result=runtime.chat(agent_type,_history(cid),binding_id,ctx['text']);binding=result['binding'];prompt=result['prompt'];response=result['result'];usage=response.get('usage',{});proposals=_proposal(agent_type,conv,assistant,result['structured']);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,True,router_reason=result['router_decision_reason'],usage=usage,execution_mode=response.get('execution_mode'));assistant=store.update_message(assistant['message_id'],{'content':response['content'],'binding_id':binding['binding_id'],'provider':binding['provider'],'model':response.get('model',binding['model']),'prompt_version':prompt['prompt_id'],'tool_calls':_tools(ctx),'proposal_ids':[p['proposal_id'] for p in proposals],'latency_ms':call['latency_ms'],'prompt_tokens':usage.get('prompt_tokens'),'completion_tokens':usage.get('completion_tokens'),'total_tokens':usage.get('total_tokens'),'status':'SUCCESS','execution_mode':response.get('execution_mode')});return {'user_message':user,'assistant_message':assistant,'proposals':proposals,'trace':call,'structured':result['structured']}
+        result=runtime.chat(agent_type,_history(cid),binding_id,ctx['text']);binding=result['binding'];prompt=result['prompt'];response=result['result'];usage=response.get('usage',{});runtime_type=_runtime_type(binding,response);proposals=_proposal(agent_type,conv,assistant,result['structured']);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,True,router_reason=result['router_decision_reason'],usage=usage,runtime_type=runtime_type);assistant=store.update_message(assistant['message_id'],{'content':response['content'],'binding_id':binding['binding_id'],'provider':binding['provider'],'model':response.get('model',binding['model']),'prompt_version':prompt['prompt_id'],'tool_calls':_tools(ctx),'proposal_ids':[p['proposal_id'] for p in proposals],'latency_ms':call['latency_ms'],'prompt_tokens':usage.get('prompt_tokens'),'completion_tokens':usage.get('completion_tokens'),'total_tokens':usage.get('total_tokens'),'status':'SUCCESS','execution_mode':runtime_type,'runtime_type':runtime_type});return {'user_message':user,'assistant_message':assistant,'proposals':proposals,'trace':call,'structured':result['structured']}
     except Exception as exc:
-        call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,False,error=exc);assistant=store.update_message(assistant['message_id'],{'status':'FAILED','error':f"{call['error_type']}: {call['error_summary']}"});raise
+        runtime_type=_runtime_type(binding);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,False,error=exc,runtime_type=runtime_type);assistant=store.update_message(assistant['message_id'],{'binding_id':binding.get('binding_id') if binding else None,'provider':binding.get('provider') if binding else None,'model':binding.get('model') if binding else None,'prompt_version':prompt.get('prompt_id') if prompt else None,'runtime_type':runtime_type,'execution_mode':runtime_type,'status':'FAILED','error':f"{call['error_type']}: {call['error_summary']}"});raise
 
 def stream(cid,content,agent_type=None,binding_id=None,attachments=None,parent_message_id=None)->Iterator[str]:
-    conv=store.conversation(cid);agent_type=agent_type or conv['agent_type'];binding_id=binding_id or conv.get('default_binding_id');attachments=attachments or [];store.update_conversation(cid,{'agent_type':agent_type,'default_binding_id':binding_id});user=store.add_message(conversation_id=cid,role='user',content=content,attachments=attachments,agent_type=agent_type,status='SUCCESS',parent_message_id=parent_message_id);assistant=store.add_message(conversation_id=cid,role='assistant',agent_type=agent_type,status='STREAMING',parent_message_id=parent_message_id);event=threading.Event();cancellations[assistant['message_id']]=event;ctx=_context(conv,agent_type,attachments);started=time.perf_counter();chunks=[];meta=None
+    conv=store.conversation(cid);agent_type=agent_type or conv['agent_type'];binding_id=binding_id or conv.get('default_binding_id');attachments=attachments or [];store.update_conversation(cid,{'agent_type':agent_type,'default_binding_id':binding_id});user=store.add_message(conversation_id=cid,role='user',content=content,attachments=attachments,agent_type=agent_type,status='SUCCESS',parent_message_id=parent_message_id);assistant=store.add_message(conversation_id=cid,role='assistant',agent_type=agent_type,status='STREAMING',parent_message_id=parent_message_id);event=threading.Event();cancellations[assistant['message_id']]=event;ctx=_context(conv,agent_type,attachments);started=time.perf_counter();chunks=[];meta=None;binding,prompt=_selected_metadata(binding_id,agent_type)
     yield _sse('start',{'user_message':user,'assistant_message':assistant})
     try:
         for chunk,meta in runtime.stream(agent_type,_history(cid),binding_id,ctx['text']):
             if event.is_set():
-                saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'status':'CANCELLED'});yield _sse('cancelled',{'message':saved});return
-            chunks.append(chunk);yield _sse('delta',{'message_id':assistant['message_id'],'content':chunk})
-        binding=meta['binding'];prompt=meta['prompt'];response=meta['result'];usage=response.get('usage',{});structured=None
-        if agent_type!='GENERAL_CHAT':
+                response=meta.get('result',{}) if meta else {};runtime_type=_runtime_type(binding,response);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,False,runtime_type=runtime_type,error_type='CANCELLED',error_summary='Cancelled by user');saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'binding_id':binding.get('binding_id') if binding else None,'provider':binding.get('provider') if binding else None,'model':binding.get('model') if binding else None,'prompt_version':prompt.get('prompt_id') if prompt else None,'latency_ms':call['latency_ms'],'status':'CANCELLED','runtime_type':runtime_type,'execution_mode':runtime_type});yield _sse('cancelled',{'message':saved,'trace':call});return
+            binding=meta.get('binding',binding);prompt=meta.get('prompt',prompt);chunks.append(chunk);store.update_message(assistant['message_id'],{'content':''.join(chunks)});yield _sse('delta',{'message_id':assistant['message_id'],'content':chunk})
+        binding=meta['binding'];prompt=meta['prompt'];response=meta['result'];usage=response.get('usage',{});runtime_type=_runtime_type(binding,response);structured=None
+        if agent_type in STRUCTURED_SCHEMAS:
             try:structured=json.loads(''.join(chunks))
             except ValueError:structured=None
-        proposals=_proposal(agent_type,conv,assistant,structured);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,True,router_reason=meta['router_decision_reason'],usage=usage,execution_mode=response.get('execution_mode'));saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'binding_id':binding['binding_id'],'provider':binding['provider'],'model':binding['model'],'prompt_version':prompt['prompt_id'],'tool_calls':_tools(ctx),'proposal_ids':[p['proposal_id'] for p in proposals],'latency_ms':call['latency_ms'],'status':'SUCCESS','execution_mode':response.get('execution_mode')});yield _sse('done',{'message':saved,'proposals':proposals,'trace':call})
+        proposals=_proposal(agent_type,conv,assistant,structured);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,True,router_reason=meta['router_decision_reason'],usage=usage,runtime_type=runtime_type);saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'binding_id':binding['binding_id'],'provider':binding['provider'],'model':binding['model'],'prompt_version':prompt['prompt_id'],'tool_calls':_tools(ctx),'proposal_ids':[p['proposal_id'] for p in proposals],'latency_ms':call['latency_ms'],'prompt_tokens':usage.get('prompt_tokens'),'completion_tokens':usage.get('completion_tokens'),'total_tokens':usage.get('total_tokens'),'status':'SUCCESS','execution_mode':runtime_type,'runtime_type':runtime_type});yield _sse('done',{'message':saved,'proposals':proposals,'trace':call})
     except Exception as exc:
-        call=_audit(conv,assistant,agent_type,None,None,ctx,started,False,error=exc);saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'status':'FAILED','error':f"{call['error_type']}: {call['error_summary']}"});yield _sse('error',{'message':saved,'trace':call})
+        runtime_type=_runtime_type(binding);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,False,error=exc,runtime_type=runtime_type);saved=store.update_message(assistant['message_id'],{'content':''.join(chunks),'binding_id':binding.get('binding_id') if binding else None,'provider':binding.get('provider') if binding else None,'model':binding.get('model') if binding else None,'prompt_version':prompt.get('prompt_id') if prompt else None,'latency_ms':call['latency_ms'],'runtime_type':runtime_type,'execution_mode':runtime_type,'status':'FAILED','error':f"{call['error_type']}: {call['error_summary']}"});yield _sse('error',{'message':saved,'trace':call})
     finally:cancellations.pop(assistant['message_id'],None)
 def _sse(event,data):return f"event: {event}\ndata: {json.dumps(data,ensure_ascii=False)}\n\n"
 def cancel(mid):
-    if mid in cancellations:cancellations[mid].set();return True
+    if mid in cancellations:cancellations[mid].set();store.update_message(mid,{'status':'CANCELLED'});return True
     return False
 
 def decide_proposal(pid,accept):
