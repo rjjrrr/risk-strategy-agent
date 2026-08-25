@@ -36,4 +36,4 @@ class RiskResearchWorkflow:
         self.builder=builder;self.graph=builder.compile(checkpointer=checkpointer)
 
     def definition(self):
-        view=self.graph.get_graph();return {"workflow_version":WORKFLOW_VERSION,"nodes":sorted(x for x in view.nodes if not x.startswith("__")),"edges":[{"source":e.source,"target":e.target,"conditional":bool(e.conditional)} for e in view.edges]}
+        view=self.graph.get_graph();return {"workflow_version":WORKFLOW_VERSION,"nodes":[x for x in NODE_NAMES if x in view.nodes],"edges":[{"source":e.source,"target":e.target,"conditional":bool(e.conditional)} for e in view.edges]}

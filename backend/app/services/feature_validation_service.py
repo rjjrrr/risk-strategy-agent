@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -15,11 +16,13 @@ from core.counterfactual.audit import (
     RemoveFeatureProposalRegistry,
 )
 from core.counterfactual.credit import build_feature_credit, build_hypothesis_credit
-from core.counterfactual.runner import FeatureCounterfactualRunner, stable_hash
+from core.counterfactual.runner import BASELINE_CONTRACT_VERSION, FeatureCounterfactualRunner, stable_hash
 from core.counterfactual.schemas import FeatureMarginalGain
 from core.feature_validation.audit import FeatureValidationRegistry
 from core.feature_validation.validator import FeatureCheapValidator
 from core.model_agent.models import temporal_split
+from core.model_agent.config import MODEL_METRICS_VERSION
+from core.model_agent.target_proxy import remove_target_proxies
 from core.model_agent.registry import ExperimentRegistry, FeatureRegistry, HypothesisRegistry, utc_now
 
 from .. import config
@@ -113,6 +116,26 @@ def _baseline_features(ds: dict[str, Any], requested: list[str] | None = None) -
     return result[:30]
 
 
+def _fresh_model_baseline(root: Path, model_type: str) -> list[str] | None:
+    """Use the initialized raw-data baseline when present; reject legacy model snapshots."""
+    summary_path = root / "model_summary.json"
+    if not summary_path.exists():
+        return None
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    metric_key = "lr_baseline" if model_type == "LR" else "lgbm_baseline"
+    metrics = summary.get(metric_key) or {}
+    if metrics.get("metrics_version") != MODEL_METRICS_VERSION or summary.get("mining_source") != "GOVERNED_RAW_DATA":
+        raise ValueError("STALE_MODEL_BASELINE: 请先重新初始化；旧版 1.0 AUC 不能作为反事实基线")
+    state_path = root / "model_agent_state.json"
+    if not state_path.exists():
+        raise ValueError("MODEL_BASELINE_STATE_MISSING: 请先重新初始化模型基线")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    baseline = list((state.get("model_state") or {}).get("baseline_features") or [])
+    if not baseline:
+        raise ValueError("MODEL_BASELINE_FEATURES_MISSING: 请先重新初始化模型基线")
+    return baseline
+
+
 def run_validation(dataset_id: str, feature_id: str, time_field: str | None = None) -> dict:
     ds, root = _dataset(dataset_id), _root(dataset_id)
     feature = _feature(dataset_id, feature_id)
@@ -127,7 +150,7 @@ def run_validation(dataset_id: str, feature_id: str, time_field: str | None = No
     dev_idx, oot_idx = temporal_split(new, time_name)
     dev_mask = pd.Series(new.index.isin(dev_idx), index=new.index)
     oot_mask = pd.Series(new.index.isin(oot_idx), index=new.index)
-    pool_names = _baseline_features(ds)
+    pool_names, _ = remove_target_proxies(new, target_field, dev_idx, oot_idx, _baseline_features(ds))
     existing_pool = new[pool_names].select_dtypes(include=[np.number]) if pool_names else None
     result = FeatureCheapValidator().validate(
         feature=feature, values=values, target=new[target_field], dataset_id=dataset_id,
@@ -184,16 +207,19 @@ def run_counterfactual(
     mask = _new_mask(ds) & frame[target_field].isin([0, 1]) & pd.to_datetime(frame[time_name], errors="coerce").notna()
     new = frame.loc[mask].copy()
     values = _values(feature, frame.index).loc[mask]
-    baseline = _baseline_features(ds, baseline_features)
     dev_idx, oot_idx = temporal_split(new, time_name)
+    initialized_baseline = _fresh_model_baseline(root, model_type) if baseline_features is None else None
+    baseline, proxy_audit = remove_target_proxies(new, target_field, dev_idx, oot_idx, _baseline_features(ds, baseline_features or initialized_baseline))
+    if baseline_features is not None and proxy_audit["excluded_fields"]:
+        raise ValueError(f"Baseline contains target proxy fields: {proxy_audit['excluded_fields']}")
     split_hash = stable_hash({"dev": [str(x) for x in dev_idx], "oot": [str(x) for x in oot_idx]})
     params = dict(DEFAULT_PARAMS[model_type])
-    signature = _signature(feature, model_type, experiment_type, baseline, params, split_hash, seed)
+    signature = stable_hash({"contract":BASELINE_CONTRACT_VERSION,"experiment":_signature(feature, model_type, experiment_type, baseline, params, split_hash, seed)})
     registry = CounterfactualRegistry(root)
     duplicate = registry.duplicate(signature)
     if duplicate:
         return {**duplicate, "duplicate": True, "duplicate_status": "DUPLICATE_EXPERIMENT"}
-    prior = [row for row in registry.all() if row.get("feature_id") == feature_id and row.get("model_type") == model_type and row.get("experiment_type") == experiment_type and row.get("decision") != "FAILED"]
+    prior = [row for row in registry.all() if row.get("feature_id") == feature_id and row.get("model_type") == model_type and row.get("experiment_type") == experiment_type and row.get("baseline_contract_version") == BASELINE_CONTRACT_VERSION and row.get("decision") != "FAILED"]
     if len(prior) >= MAX_COUNTERFACTUAL_EXPERIMENTS_PER_FEATURE[model_type]:
         raise ValueError("MAX_COUNTERFACTUAL_EXPERIMENTS_PER_FEATURE reached")
     try:
@@ -202,6 +228,7 @@ def run_counterfactual(
             feature=feature, feature_values=values, baseline_features=baseline, model_type=model_type,
             experiment_type=experiment_type, params=params, seed=seed,
         ).model_dump()
+        result["target_proxy_audit"] = proxy_audit
         result["experiment_signature"] = signature
         registry.add(result)
         ExperimentRegistry(root).add(result)
@@ -231,6 +258,8 @@ def run_counterfactual(
             "feature_version": str(feature.get("version") or feature.get("feature_version") or "1.0"),
             "hypothesis_id": feature.get("hypothesis_id"), "dataset_id": dataset_id,
             "experiment_type": experiment_type, "model_type": model_type, "baseline_features": baseline,
+            "baseline_source":"GOVERNED_RAW_DATA","baseline_contract_version":BASELINE_CONTRACT_VERSION,
+            "target_proxy_audit":proxy_audit,
             "challenger_features": [], "changed_features": [feature["feature_name"]], "model_params": params,
             "model_params_hash": stable_hash({**params, "random_state": seed}), "split_id": f"SPLIT_{split_hash[:12]}",
             "split_hash": split_hash, "seed": seed, "preprocessing_version": "counterfactual-preprocess-v1",

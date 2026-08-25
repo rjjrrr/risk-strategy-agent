@@ -8,9 +8,12 @@ from typing import Any
 
 from .exceptions import FeatureSpecInvalid
 
-ALIASES={"SAFE_DIVIDE":"SAFE_DIV","SAFEDIV":"SAFE_DIV","MISSING":"MISSING_FLAG","AND":"BOOLEAN_AND"}
+ALIASES={
+    "SAFE_DIVIDE":"SAFE_DIV","SAFEDIV":"SAFE_DIV","MISSING":"MISSING_FLAG",
+    "AND":"BOOLEAN_AND","OR":"BOOLEAN_OR","POW":"POWER","NVL":"COALESCE",
+}
 COMPARE={py_ast.Eq:"EQ",py_ast.NotEq:"NE",py_ast.Gt:"GT",py_ast.GtE:"GE",py_ast.Lt:"LT",py_ast.LtE:"LE",py_ast.In:"IN"}
-BINOP={py_ast.Add:"ADD",py_ast.Sub:"SUB",py_ast.Mult:"MUL",py_ast.Div:"SAFE_DIV"}
+BINOP={py_ast.Add:"ADD",py_ast.Sub:"SUB",py_ast.Mult:"MUL",py_ast.Div:"SAFE_DIV",py_ast.Mod:"MOD",py_ast.Pow:"POWER"}
 FORBIDDEN=("lambda","import ","from ","df[","system(","subprocess","open(","compile(","globals(","locals(","getattr(","setattr(","delattr(",";","\n")
 FORBIDDEN_NAMES={"eval","exec","__import__","open","compile","globals","locals","getattr","setattr","delattr"}
 
@@ -93,6 +96,7 @@ def _convert(node: py_ast.AST) -> Node:
     if isinstance(node,py_ast.BoolOp):
         op="BOOLEAN_AND" if isinstance(node.op,py_ast.And) else "BOOLEAN_OR"
         return ConditionNode(op,[_convert(x) for x in node.values])
+    if isinstance(node,py_ast.UnaryOp) and isinstance(node.op,py_ast.Not):return ConditionNode("NOT",[_convert(node.operand)])
     if isinstance(node,py_ast.UnaryOp) and isinstance(node.op,py_ast.USub) and isinstance(node.operand,py_ast.Constant) and isinstance(node.operand.value,(int,float)):return ConstantNode(-node.operand.value)
     raise FeatureSpecInvalid(f"Unsupported DSL syntax: {type(node).__name__}")
 

@@ -6,7 +6,7 @@ from .exceptions import ExecutionFailed
 
 
 class EntityExecutor:
-    OPS={"ENTITY_COUNT","ENTITY_NUNIQUE"}
+    OPS={"ENTITY_COUNT","ENTITY_NUNIQUE","ENTITY_SUM","ENTITY_MEAN","ENTITY_MIN","ENTITY_MAX","ENTITY_STD"}
     @staticmethod
     def _field(node):
         if not isinstance(node,FieldNode):raise ExecutionFailed("Entity arguments must be field names")
@@ -18,4 +18,8 @@ class EntityExecutor:
         if node.op=="ENTITY_COUNT":return df.groupby(entity,dropna=False)[entity].transform("size").astype(float)
         target=self._field(node.args[1])
         if target not in df:raise ExecutionFailed(f"Entity target field missing: {target}")
-        return df.groupby(entity,dropna=False)[target].transform("nunique").astype(float)
+        if node.op=="ENTITY_NUNIQUE":return df.groupby(entity,dropna=False)[target].transform("nunique").astype(float)
+        numeric=pd.to_numeric(df[target],errors="coerce")
+        operation={"ENTITY_SUM":"sum","ENTITY_MEAN":"mean","ENTITY_MIN":"min","ENTITY_MAX":"max","ENTITY_STD":"std"}[node.op]
+        values=numeric.groupby(df[entity],dropna=False).transform(operation)
+        return values.fillna(0.0).astype(float)

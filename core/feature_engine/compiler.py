@@ -30,7 +30,6 @@ class FeatureCompiler:
         risky=[x for x in spec.source_fields if governance.get(x,{}).get("decision")=="SUSPECT_LEAKAGE" or governance.get(x,{}).get("semantic_type") in BLOCKED_GOVERNANCE]
         if risky:return FeatureExecutionPlan(**base,compiler_status="LEAKAGE_RISK",leakage_checks=[{"field":x,"status":"BLOCKED"} for x in risky],warnings=["Leakage-prone source fields are forbidden"])
         dates=[x for x in spec.source_fields if governance.get(x,{}).get("semantic_type")=="DATETIME"]
-        if dates and spec.feature_type=="COLUMN_TRANSFORM":return FeatureExecutionPlan(**base,compiler_status="DATETIME_RAW_FORBIDDEN",leakage_checks=[{"field":x,"status":"DATETIME_RAW_BLOCKED"} for x in dates])
         if spec.entity_key and spec.entity_key not in schema_fields:return FeatureExecutionPlan(**base,compiler_status="UNSUPPORTED_ENTITY",capability_gap=_gap(spec,entities=[spec.entity_key],reason="Entity key is unavailable",resolution="Provide the required entity key."))
         if not self.capabilities.supports_window(spec.time_window):return FeatureExecutionPlan(**base,compiler_status="UNSUPPORTED_WINDOW",capability_gap=_gap(spec,reason=f"Unsupported window: {spec.time_window}",resolution=f"Use one of {sorted(self.capabilities.WINDOWS)}"))
         try:node=parse_expression(spec.dsl_expression or "")
@@ -39,6 +38,9 @@ class FeatureCompiler:
         if unknown_fields:return FeatureExecutionPlan(**base,compiler_status="INVALID_SOURCE_FIELD",ast=node.to_dict(),normalized_ast=normalized_ast(node),warnings=[f"AST field missing: {x}" for x in unknown_fields])
         ops=operators(node);unsupported=sorted(x for x in ops if not self.capabilities.supports(x))
         if unsupported:return FeatureExecutionPlan(**base,compiler_status="NEEDS_NEW_OPERATOR",operators=ops,ast=node.to_dict(),normalized_ast=normalized_ast(node),capability_gap=_gap(spec,operators_=unsupported,reason="DSL contains unsupported operators",resolution="Add and test deterministic operator implementations before execution."))
+        safe_date_ops={"TIME_DIFF","DAYS_BETWEEN","HOURS_BETWEEN","HOUR","DAY_OF_WEEK","DAY_OF_MONTH","MONTH","IS_WEEKEND"}
+        if dates and spec.feature_type=="COLUMN_TRANSFORM" and not set(ops)&safe_date_ops:
+            return FeatureExecutionPlan(**base,compiler_status="DATETIME_RAW_FORBIDDEN",operators=ops,ast=node.to_dict(),normalized_ast=normalized_ast(node),leakage_checks=[{"field":x,"status":"DATETIME_RAW_BLOCKED"} for x in dates])
         bad_windows=sorted(x for x in windows(node) if not self.capabilities.supports_window(x))
         if bad_windows:return FeatureExecutionPlan(**base,compiler_status="UNSUPPORTED_WINDOW",operators=ops,ast=node.to_dict(),normalized_ast=normalized_ast(node),capability_gap=_gap(spec,reason=f"Unsupported windows: {bad_windows}",resolution=f"Use one of {sorted(self.capabilities.WINDOWS)}"))
         normalized=normalized_ast(node);meaning=spec.business_intent.strip().lower()

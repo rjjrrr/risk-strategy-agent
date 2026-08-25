@@ -53,7 +53,7 @@ def compile_direct(feature_spec,schema,governance=None,sources=None,registry=Non
 
 
 def test_capability_registry():
-    result=FeatureCapabilityRegistry().summary();assert {'SAFE_DIV','COUNT_OVER_WINDOW','ENTITY_NUNIQUE','RULE_GROUP_HIT'}<=set(result['operators']);assert {'1h','24h','90d'}<=set(result['windows'])
+    result=FeatureCapabilityRegistry().summary();assert {'SAFE_DIV','POWER','BOOLEAN_OR','STD_OVER_WINDOW','ENTITY_MEAN','IS_WEEKEND','RULE_GROUP_HIT'}<=set(result['operators']);assert {'1h','24h','90d'}<=set(result['windows']);assert len(result['formula_examples'])>=5
 
 
 def test_feature_spec_from_proposal():
@@ -133,8 +133,32 @@ def test_insufficient_entity_data():
     plan=compile_direct(s,['create_time'],sources=['CURRENT_WIDE_TABLE']);assert plan.compiler_status=='INSUFFICIENT_DATA' and plan.capability_gap.missing_data_source==['APPLICATION_EVENT_TABLE']
 
 
-def test_capability_gap():
-    plan=compile_direct(spec(dsl_expression='EQ(query_cnt_7d,1) or EQ(query_cnt_90d,2)'),['query_cnt_7d','query_cnt_90d']);assert plan.compiler_status=='NEEDS_NEW_OPERATOR' and plan.capability_gap.missing_operator==['BOOLEAN_OR']
+def test_boolean_or_is_supported():
+    plan=compile_direct(spec(dsl_expression='EQ(query_cnt_7d,1) or not EQ(query_cnt_90d,2)'),['query_cnt_7d','query_cnt_90d'])
+    assert plan.compiler_status=='COMPOSABLE_DSL' and {'BOOLEAN_OR','NOT'}<=set(plan.operators)
+
+
+def test_complex_nonlinear_and_missing_formula():
+    frame=pd.DataFrame({'a':[4,-9,np.nan],'b':[2,0,3]})
+    expression='ROUND(SQRT(POWER(ABS(COALESCE(a,0)),2)),1) + MOD(b,2)'
+    s=spec(source_fields=['a','b'],dsl_expression=expression);plan=compile_direct(s,frame.columns);values=FeatureExecutor().execute(s,plan,frame)
+    assert plan.compiler_status=='COMPOSABLE_DSL' and values.tolist()==[4.0,9.0,1.0]
+
+
+def test_safe_datetime_derivations(engine_env):
+    _,df,_,_=engine_env;s=spec(feature_spec_id='FS_DATE',feature_type='COLUMN_TRANSFORM',source_fields=['create_time'],dsl_expression='IF(IS_WEEKEND(create_time),HOUR(create_time),DAY_OF_WEEK(create_time))')
+    governance={'create_time':{'decision':'KEEP','semantic_type':'DATETIME'}};plan=compile_direct(s,df.columns,governance);values=FeatureExecutor().execute(s,plan,df)
+    assert plan.compiler_status=='COMPOSABLE_DSL' and values.notna().all()
+
+
+def test_window_statistics_and_entity_aggregation(engine_env):
+    _,df,_,_=engine_env
+    window=spec(feature_spec_id='FS_STD_WIN',feature_type='TIME_WINDOW_AGG',source_fields=['device_id','monthly_income','create_time'],entity_key='device_id',application_time_field='create_time',time_window='24h',required_data_sources=['APPLICATION_EVENT_TABLE'],dsl_expression='STD_OVER_WINDOW(device_id,monthly_income,create_time,"24h")')
+    plan=compile_direct(window,df.columns,sources=['CURRENT_WIDE_TABLE','APPLICATION_EVENT_TABLE']);values=FeatureExecutor().execute(window,plan,df)
+    assert plan.compiler_status=='COMPOSABLE_DSL' and values.iloc[2]==1500
+    entity=spec(feature_spec_id='FS_ENTITY_MEAN',feature_type='ENTITY_AGG',source_fields=['device_id','monthly_income'],entity_key='device_id',dsl_expression='ENTITY_MEAN(device_id,monthly_income)')
+    entity_plan=compile_direct(entity,df.columns);entity_values=FeatureExecutor().execute(entity,entity_plan,df)
+    assert entity_plan.compiler_status=='COMPOSABLE_DSL' and entity_values.iloc[0]==entity_values.iloc[1]
 
 
 def test_leakage_block():

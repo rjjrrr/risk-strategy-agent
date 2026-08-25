@@ -1,5 +1,21 @@
 # Model Agent Change Log
 
+## Change #057 - Candidate lineage and model-metric data audit
+
+- Candidate lineage audit: the retained chat contains four proposal cards: two `FEATURE_CANDIDATE` formulas and two `HYPOTHESIS_CREATE` research hypotheses. Only the two formula proposals are valid compiler inputs. The model-initialization registry separately contains 20 legacy auto-generated features, so the prior UI mixed three different populations.
+- Candidate UI now reports total feature assets with an explicit split between structured formulas and initialization-generated features. The candidate tab lists both populations and explains why legacy generated features do not expose a duplicate compile action.
+- Model mining now declares `GOVERNED_RAW_DATA` as its source and passes no rule findings into semantic hypotheses or feature generation. Rule mining remains an independent strategy-analysis tool rather than a model dependency.
+- Metric contract V2 adds pooled NEW-labelled AUC/KS and row counts as a descriptive “overall” view while preserving temporal OOT AUC as the only model-selection AUC. DEV, OOT and pooled populations are labelled separately in the UI.
+- Legacy summaries without Metric V2 are returned as `STALE_REINITIALIZATION_REQUIRED`; their AUC values and champion are suppressed at the API and UI layers instead of continuing to display 1.0.
+- Target-proxy audit now scans the entire governed feature pool before the 30-field baseline cap. On dataset `bb9afd041924`, 1,142 governed candidates were audited and `pay_type` plus `apply_status` were blocked as near-perfect target proxies in both DEV and OOT.
+- Strict rerun after proxy removal: LR pooled/DEV/OOT AUC = 0.5459/0.5792/0.4581; LightGBM pooled/DEV/OOT AUC = 0.7165/0.8082/0.5115. The previous 0.998–1.000 values are therefore invalid as a trustworthy model-performance conclusion.
+- Data scope audit: source has 4,527 rows and 2,824 fields, but only 1,566 rows have a binary label (34.6%). The NEW model uses 1,455 labelled rows (39.9% of NEW), split into 1,018 DEV and 437 OOT rows. OLD has only 111 labelled rows and is excluded from this NEW model.
+- The labelled NEW application-time window spans only 2026-07-22 12:28:01 through 2026-07-28 22:14:01. OOT therefore represents a short six-day slice, not a mature out-of-time validation period; current results are diagnostic and not production evidence.
+- Counterfactual baseline contract V2 uses governed raw fields, shares the initialized baseline when available, repeats target-proxy exclusion, versions the experiment signature, and rejects legacy 1.0 model summaries before training. Existing V1 experiments remain historical and do not consume the V2 per-feature experiment quota.
+- Real V2 counterfactual acceptance on `F_GEN_685f909eab` / LightGBM: baseline source `GOVERNED_RAW_DATA`, same split `true`, only one feature changed `true`; OOT AUC moved 0.5104 → 0.5078 (Δ -0.0026), so the feature was correctly classified `UNSTABLE` rather than being credited from the legacy perfect-AUC baseline.
+- Uploaded datasets now restore lazily from `backend/uploads/<dataset_id>/data.*` after a backend restart. Restoration rebuilds governance and intentionally does not revive rules as model inputs.
+- Verification: focused model/proxy tests passed (6/6), actual-data model rerun completed, and the frontend production build passed. Generated audit artifacts remain under git-ignored `test_artifacts/model_audit_bb9`.
+
 ## Change #056 - Phase 6.5 Surrogate diagnostic and calibration
 
 - Added Synthetic V1 target/distribution audit, Oracle/random/historical/Phase5/model baselines, formal time-split versus diagnostic stratified-random comparison, unified classification/regression/ranking metrics, distribution-shift checks, permutation importance and feature-group ablation.

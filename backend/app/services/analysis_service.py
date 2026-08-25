@@ -24,8 +24,32 @@ def register_upload(filename, content):
     path=_paths(did)/("data"+ext); path.write_bytes(content); df=load_data(str(path)); df.insert(0,"__row_id__",np.arange(len(df),dtype=np.int64)); DATASETS[did]={"path":path,"df":df,"governance":None,"rules":[],"target":"target7","segment_field":"is_old","state":new_state(did,filename, len(df), len(df.columns))}; STATUS[did]={"status":"UPLOADED"}
     _save_state(DATASETS[did])
     return did, df
+
+
+def _restore_dataset(dataset_id):
+    """Restore uploaded data after a backend restart without reviving rule state as model input."""
+    directory=config.UPLOAD_DIR/dataset_id
+    paths=[path for path in directory.glob("data.*") if path.suffix.lower() in config.ALLOWED_EXTENSIONS] if directory.exists() else []
+    if not paths:
+        raise KeyError("dataset不存在")
+    path=paths[0]; df=load_data(str(path))
+    if "__row_id__" not in df:
+        df.insert(0,"__row_id__",np.arange(len(df),dtype=np.int64))
+    state_path=directory/"analysis_state.json"
+    state=json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else new_state(dataset_id,path.name,len(df),len(df.columns))
+    cfg=state.get("config",{}); target=cfg.get("target") or "target7"; segment=cfg.get("segment_field") or "is_old"
+    _,meta=govern(df,target,segment); meta=meta[meta.field!="__row_id__"].copy()
+    override_path=directory/"governance_override.json"
+    if override_path.exists():
+        for field,value in json.loads(override_path.read_text(encoding="utf-8")).items():
+            meta.loc[meta.field==field,"decision"]=value["manual_decision"]
+    DATASETS[dataset_id]={"path":path,"df":df,"governance":meta,"rules":[],"target":target,"segment_field":segment,"application_time_field":cfg.get("application_time_field"),"state":state,"restored_from_disk":True}
+    STATUS[dataset_id]={"status":"RESTORED"}
+    return DATASETS[dataset_id]
+
+
 def get_dataset(dataset_id):
-    if dataset_id not in DATASETS: raise KeyError("dataset不存在")
+    if dataset_id not in DATASETS: return _restore_dataset(dataset_id)
     return DATASETS[dataset_id]
 def governance(dataset_id, target="target7", segment_field="is_old"):
     ds=get_dataset(dataset_id); _, meta=govern(ds["df"],target,segment_field); meta=meta[meta.field!="__row_id__"].copy(); p=_paths(dataset_id)/"governance_override.json"

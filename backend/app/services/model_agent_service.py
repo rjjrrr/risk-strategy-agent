@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.model_agent.orchestrator import ModelAgentOrchestrator
+from core.model_agent.config import MODEL_METRICS_VERSION
 from core.model_agent.registry import utc_now
 from core.counterfactual.audit import FeatureCreditRegistry, HypothesisCreditRegistry
 from core.feature_validation.audit import FeatureValidationRegistry
@@ -114,8 +115,17 @@ def summary(dataset_id: str) -> dict[str, Any]:
     a = agent(dataset_id)
     path = root_for(dataset_id) / "model_summary.json"
     model_summary = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    versions={str((model_summary.get(key) or {}).get("metrics_version") or "LEGACY") for key in ("lr_baseline","lgbm_baseline") if model_summary.get(key)}
+    metrics_status="CURRENT" if versions=={MODEL_METRICS_VERSION} else "STALE_REINITIALIZATION_REQUIRED" if versions else "NOT_INITIALIZED"
+    display_summary=dict(model_summary)
+    if metrics_status=="STALE_REINITIALIZATION_REQUIRED":
+        for key in ("lr_baseline","lgbm_baseline"):
+            if key in display_summary:
+                display_summary[key]={"metrics_version":"LEGACY","stale":True,"status":metrics_status}
+        display_summary["champion"]=None
     return _clean({
-        "state": a.state_store.load(), "summary": model_summary,
+        "state": a.state_store.load(), "summary": display_summary,
+        "metrics_status":metrics_status,"required_metrics_version":MODEL_METRICS_VERSION,
         "counts": {"hypotheses": len(a.hypotheses.all()), "features": len(a.features.all()), "experiments": len(a.experiments.all()), "diagnoses": len(a.diagnoses.all()), "approvals": len(a.approvals.all())},
     })
 
@@ -145,14 +155,14 @@ def write_report(dataset_id: str) -> Path:
         return f"| {name} | {metrics.get('dev_auc', '-') } | {metrics.get('oot_auc', '-') } | {metrics.get('oot_ks', '-') } | {metrics.get('train_oot_auc_gap', '-') } |"
     lines = [
         "# Risk Strategy Agent V1.0 模型实验报告", "", f"- 数据集：`{dataset_id}`", "- 客群：`NEW`", f"- 状态：`{state.get('stop_reason') or 'ACTIVE'}`", f"- 当前轮次：{state.get('round_index', 0)} / {state.get('max_rounds', 3)}", "",
-        "## 模型概览", "", "| 模型 | DEV AUC | OOT AUC | OOT KS | AUC Gap |", "|---|---:|---:|---:|---:|",
+        "## 模型概览", "", f"指标状态：**{data.get('metrics_status')}**", "", "| 模型 | DEV AUC | OOT AUC | OOT KS | AUC Gap |", "|---|---:|---:|---:|---:|",
         metric_line("LR", model.get("lr_baseline", {})), metric_line("LightGBM", model.get("lgbm_baseline", {})), "", f"Champion：**{model.get('champion', '-')}**", "",
         "## 状态指针", "", f"- CURRENT：`{state.get('current_state_id')}`", f"- BEST：`{state.get('best_state_id')}`", f"- LAST_STABLE：`{state.get('last_stable_state_id')}`", "",
         "## 语义、假设与特征", "", f"- 语义字段：{state.get('semantic_state', {}).get('count', 0)}", f"- 假设：{len(a.hypotheses.all())}", f"- 特征：{len(a.features.all())}", "",
         "## 实验结论", "", *(f"- `{x.get('experiment_id')}` {x.get('experiment_type')} → **{x.get('decision')}**：{x.get('decision_reason', x.get('description', ''))}" for x in experiments), "",
         "## 诊断", "", *(f"- **{x.get('diagnosis_type')}**：{x.get('evidence')}；建议：{x.get('recommended_action')}" for x in diagnoses), "",
         "## 人工审批", "", *(f"- `{x.get('approval_id')}` {x.get('action_type')}：**{x.get('status')}**" for x in approvals), "",
-        "## 治理约束", "", "- 仅对 NEW 客群建模；target 固定为 target7。", "- 规则挖掘引擎未被替换，模型结果不自动进入生产。", "- 永久删除、泄漏排除与生产特征均需人工审批。", "- 最多运行 3 轮，并保留 CURRENT / BEST / LAST_STABLE 与回滚审计。", "",
+        "## 治理约束", "", "- 仅对 NEW 客群建模；target 固定为 target7。", "- 模型挖掘直接使用治理后的原始字段，不依赖规则挖掘结果。", "- 规则页是独立策略工具，模型结果不自动进入生产。", "- 永久删除、泄漏排除与生产特征均需人工审批。", "- 最多运行 3 轮，并保留 CURRENT / BEST / LAST_STABLE 与回滚审计。", "",
     ]
     path = root_for(dataset_id) / "model_report.md"
     path.write_text("\n".join(lines), encoding="utf-8")

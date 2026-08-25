@@ -17,6 +17,12 @@ def test_lr_and_lgbm_baseline(tmp_path):
     xd,yd,xo,yo=_data(); trainer=ModelTrainer(tmp_path)
     lr=trainer.train('LR',xd,yd,xo,yo,'lr_base'); lgbm=trainer.train('LGBM',xd,yd,xo,yo,'lgbm_base')
     assert lr['metrics']['oot_auc']>.75 and lgbm['metrics']['oot_auc']>.75
+    for result in (lr,lgbm):
+        metrics=result['metrics']
+        assert metrics['overall_rows']==metrics['dev_rows']+metrics['oot_rows']
+        assert 0 <= metrics['overall_auc'] <= 1
+        assert metrics['selection_metric']=='oot_auc'
+        assert metrics['metrics_version']=='2.0'
     assert (tmp_path/'lr_base.pkl').exists() and (tmp_path/'lgbm_base.txt').exists()
 
 

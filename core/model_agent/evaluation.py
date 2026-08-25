@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import roc_auc_score, roc_curve
 
-from .config import HARD_GATES, MATERIAL_IMPROVEMENT
+from .config import HARD_GATES, MATERIAL_IMPROVEMENT, MODEL_METRICS_VERSION
 
 
 def ks_score(y_true, scores) -> float:
@@ -36,12 +36,22 @@ def score_psi(dev_scores, oot_scores, bins: int = 10) -> float:
 
 def model_metrics(y_dev, p_dev, y_oot, p_oot, feature_count: int) -> dict[str, Any]:
     dev_auc = float(roc_auc_score(y_dev, p_dev)); oot_auc = float(roc_auc_score(y_oot, p_oot))
+    y_all = np.concatenate([np.asarray(y_dev), np.asarray(y_oot)])
+    p_all = np.concatenate([np.asarray(p_dev), np.asarray(p_oot)])
     return {
+        # Pooled metrics describe all labelled NEW samples seen by this run. They
+        # include the training partition and must never be used for model selection.
+        "overall_auc": float(roc_auc_score(y_all, p_all)),
+        "overall_ks": ks_score(y_all, p_all),
         "dev_auc": dev_auc, "oot_auc": oot_auc,
         "dev_ks": ks_score(y_dev, p_dev), "oot_ks": ks_score(y_oot, p_oot),
         "lift_at_5": lift_at(y_oot, p_oot, .05), "lift_at_10": lift_at(y_oot, p_oot, .10),
         "lift_at_20": lift_at(y_oot, p_oot, .20), "train_oot_auc_gap": abs(dev_auc - oot_auc),
         "score_psi": score_psi(p_dev, p_oot), "feature_count": int(feature_count),
+        "overall_rows": int(len(y_all)), "dev_rows": int(len(y_dev)), "oot_rows": int(len(y_oot)),
+        "overall_bad_rate": float(np.mean(y_all)), "dev_bad_rate": float(np.mean(y_dev)),
+        "oot_bad_rate": float(np.mean(y_oot)),
+        "selection_metric": "oot_auc", "metrics_version": MODEL_METRICS_VERSION,
     }
 
 

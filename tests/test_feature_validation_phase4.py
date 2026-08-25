@@ -239,6 +239,17 @@ def test_phase4_api(phase4_env):
     result = client.post(f"/api/counterfactual/feature/{feature['feature_id']}", json={"dataset_id": did, "model_type": "LR", "time_field": "create_time", "user_confirmed": True})
     assert result.status_code == 200 and result.json()["decision"] == "POSITIVE"
     assert result.json()["baseline_features"] != result.json()["challenger_features"]
+    assert result.json()["baseline_source"] == "GOVERNED_RAW_DATA"
+    assert result.json()["baseline_contract_version"] == "counterfactual-baseline-v2"
+
+
+def test_counterfactual_rejects_legacy_model_baseline(phase4_env):
+    did, feature, _ = phase4_env; root = config.MODEL_AGENT_DIR / did
+    FeatureValidationRegistry(root).add({"validation_id": "FV_LEGACY", "feature_id": feature["feature_id"], "decision": "PROMISING", "lr_eligible": True, "lgbm_eligible": True, "metrics": {}, "warnings": []})
+    (root / "model_summary.json").write_text('{"mining_source":"RULES","lr_baseline":{"oot_auc":1.0}}', encoding="utf-8")
+    response = TestClient(app).post(f"/api/counterfactual/feature/{feature['feature_id']}", json={"dataset_id": did, "model_type": "LR", "time_field": "create_time", "user_confirmed": True})
+    assert response.status_code == 400
+    assert "STALE_MODEL_BASELINE" in response.text
 
 
 def test_context_credit_summary(phase4_env):

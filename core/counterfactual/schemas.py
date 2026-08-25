@@ -25,6 +25,9 @@ class CounterfactualExperiment(BaseModel):
     baseline_features: list[str]
     challenger_features: list[str]
     changed_features: list[str]
+    baseline_source: Literal["GOVERNED_RAW_DATA"] = "GOVERNED_RAW_DATA"
+    baseline_contract_version: str = "counterfactual-baseline-v2"
+    target_proxy_audit: dict[str, Any] = Field(default_factory=dict)
     model_params: dict[str, Any]
     model_params_hash: str
     split_id: str

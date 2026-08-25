@@ -1,5 +1,7 @@
 # Risk Strategy Agent
 
+GitHub 仓库：`rjjrrr/risk-strategy-agent`
+
 Risk Strategy Agent 是一个面向风控策略、数据分析和模型实验的本地工作台。系统覆盖数据导入、字段治理、规则挖掘、Agent 风险分析、候选特征生成、质量验证、特征级反事实实验、实验决策、实验记忆和可恢复工作流。
 
 当前验收状态：`FULL_FLOW_PASS`。详细能力与验收结论见 [RISK_STRATEGY_AGENT_REPORT.md](RISK_STRATEGY_AGENT_REPORT.md)。
@@ -66,7 +68,7 @@ cd ..
 复制环境变量模板，或直接在启动后端的 PowerShell 中设置：
 
 ```powershell
-$env:ZHIPU_API_KEY="你的智谱 API Key"
+$env:ZHIPU_API_KEY = Read-Host "请输入智谱 API Key"
 $env:ZHIPU_MODEL="glm-4-plus"
 ```
 
@@ -77,7 +79,7 @@ $env:ZHIPU_MODEL="glm-4-plus"
 终端 1：启动后端。
 
 ```powershell
-cd "C:\path\to\风控Agent_2"
+cd "C:\path\to\risk-strategy-agent"
 conda activate py3.9
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 ```
@@ -91,7 +93,7 @@ python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 终端 2：启动前端。
 
 ```powershell
-cd "C:\path\to\风控Agent_2\frontend"
+cd "C:\path\to\risk-strategy-agent\frontend"
 cmd /c npm run dev
 ```
 
@@ -153,7 +155,7 @@ python scripts/full_flow_acceptance.py
 - 密钥与敏感文件扫描。
 - 智谱默认绑定和密钥不落盘检查。
 
-当前基线为 `264 passed`，最终输出应包含：
+当前基线为 `272 passed`，最终输出应包含：
 
 ```text
 FULL_FLOW_PASS

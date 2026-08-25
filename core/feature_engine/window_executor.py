@@ -12,7 +12,8 @@ from .exceptions import ExecutionFailed
 
 class WindowExecutor:
     OPS = {
-        "COUNT_OVER_WINDOW", "SUM_OVER_WINDOW", "MEAN_OVER_WINDOW", "NUNIQUE_OVER_WINDOW",
+        "COUNT_OVER_WINDOW", "SUM_OVER_WINDOW", "MEAN_OVER_WINDOW", "MIN_OVER_WINDOW", "MAX_OVER_WINDOW",
+        "STD_OVER_WINDOW", "NUNIQUE_OVER_WINDOW",
         "ENTITY_WINDOW_COUNT", "ENTITY_WINDOW_NUNIQUE", "CONDITIONAL_COUNT", "CONDITIONAL_NUNIQUE",
     }
 
@@ -120,16 +121,30 @@ class WindowExecutor:
                 source = events["_condition"].astype(float).to_numpy() if conditional else np.ones(len(events), dtype=float)
                 prefix = np.concatenate(([0.0], np.cumsum(source)))
                 values = prefix[upper] - prefix[lower]
-            elif node.op in {"SUM_OVER_WINDOW", "MEAN_OVER_WINDOW"}:
+            elif node.op in {"SUM_OVER_WINDOW", "MEAN_OVER_WINDOW", "STD_OVER_WINDOW"}:
                 numeric = pd.to_numeric(events["_value"], errors="coerce").to_numpy(dtype=float)
                 valid_numeric = np.isfinite(numeric)
                 sums = np.concatenate(([0.0], np.cumsum(np.where(valid_numeric, numeric, 0.0))))
                 counts = np.concatenate(([0], np.cumsum(valid_numeric.astype(int))))
                 window_sums = sums[upper] - sums[lower]
                 window_counts = counts[upper] - counts[lower]
-                values = window_sums if node.op == "SUM_OVER_WINDOW" else np.divide(
-                    window_sums, window_counts, out=np.zeros_like(window_sums), where=window_counts > 0
-                )
+                if node.op == "SUM_OVER_WINDOW":
+                    values = window_sums
+                else:
+                    means = np.divide(window_sums, window_counts, out=np.zeros_like(window_sums), where=window_counts > 0)
+                    if node.op == "MEAN_OVER_WINDOW":
+                        values = means
+                    else:
+                        squares = np.concatenate(([0.0], np.cumsum(np.where(valid_numeric, numeric * numeric, 0.0))))
+                        mean_squares = np.divide(squares[upper] - squares[lower], window_counts, out=np.zeros_like(window_sums), where=window_counts > 0)
+                        values = np.sqrt(np.maximum(mean_squares - means * means, 0.0))
+            elif node.op in {"MIN_OVER_WINDOW", "MAX_OVER_WINDOW"}:
+                numeric = pd.to_numeric(events["_value"], errors="coerce").to_numpy(dtype=float)
+                reducer = np.nanmin if node.op == "MIN_OVER_WINDOW" else np.nanmax
+                values = np.zeros(len(upper), dtype=float)
+                for position, (start, stop) in enumerate(zip(lower, upper)):
+                    chunk = numeric[int(start):int(stop)]
+                    values[position] = reducer(chunk) if len(chunk) and np.isfinite(chunk).any() else 0.0
             else:
                 raw = events["_value"].where(events["_condition"]) if conditional else events["_value"]
                 values = self._bounded_nunique(raw.to_numpy(dtype=object), lower, upper)

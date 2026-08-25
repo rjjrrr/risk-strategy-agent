@@ -14,6 +14,7 @@ from .evaluator import decide_counterfactual, delta_metrics, experiment_confiden
 from .schemas import CounterfactualExperiment, utc_now
 
 PREPROCESSING_VERSION = "counterfactual-preprocess-v1"
+BASELINE_CONTRACT_VERSION = "counterfactual-baseline-v2"
 
 
 def stable_hash(value: Any) -> str:
@@ -72,6 +73,7 @@ class FeatureCounterfactualRunner:
             experiment_type=experiment_type, baseline_state_id=f"STATE_{experiment_id}_BEFORE",
             challenger_state_id=f"STATE_{experiment_id}_AFTER", model_type=model_type,
             baseline_features=baseline, challenger_features=challenger, changed_features=[feature_name],
+            baseline_source="GOVERNED_RAW_DATA", baseline_contract_version=BASELINE_CONTRACT_VERSION,
             model_params=params, model_params_hash=params_hash, split_id=split_id, split_hash=split_hash,
             seed=seed, preprocessing_version=PREPROCESSING_VERSION, feature_pool_version=pool_version,
             metrics_before=before["metrics"], metrics_after=after["metrics"], delta_metrics=delta,

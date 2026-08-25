@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .approval import HumanApprovalManager
+from .config import MODEL_MINING_SOURCE
 from .diagnosis import DiagnosisAgent
 from .evaluation import Evaluator
 from .experiments import ExperimentManager
@@ -18,6 +19,7 @@ from .planner import PlannerAgent
 from .registry import ApprovalRegistry, DiagnosisRegistry, ExperimentRegistry, FeatureRegistry, HypothesisRegistry
 from .semantic import SemanticAnalysisAgent
 from .state import ModelAgentStateStore
+from .target_proxy import remove_target_proxies
 from .validation import CheapValidator, select_feature_pools
 
 
@@ -63,14 +65,22 @@ class ModelAgentOrchestrator:
     def run_initial(self, df: pd.DataFrame, governance: pd.DataFrame, rules: list[dict[str,Any]], application_time_field: str | None = None) -> dict[str,Any]:
         state=self.state_store.create(); data=self._new_data(df,"target7","is_old"); time_field=self._time_field(data,application_time_field)
         state["data_state"]={"rows":len(data),"target":"target7","segment_field":"is_old","time_field":time_field,"dataset_version":"D1"}; state["stage_status"]["semantic_analysis"]="RUNNING"; self.state_store.save(state)
-        semantics=SemanticAnalysisAgent().analyze(data,governance,rules); self._save_json("semantic_state.json",semantics); state=self.state_store.load(); state["semantic_state"]={"count":len(semantics),"path":"semantic_state.json"}; state["stage_status"]["semantic_analysis"]="SUCCESS"; self.state_store.save(state)
-        hypothesis_rows=HypothesisAgent(self.hypotheses).propose(semantics,rules); state=self.state_store.load(); state["hypothesis_state"]={"count":len(hypothesis_rows)}; state["stage_status"]["hypothesis"]="SUCCESS"; self.state_store.save(state)
+        # Model mining starts from governed raw fields. Deterministic rule-mining
+        # output may be shown as separate evidence, but is never an input dependency
+        # for hypotheses, generated features, or the baseline model.
+        semantics=SemanticAnalysisAgent().analyze(data,governance,[]); self._save_json("semantic_state.json",semantics); state=self.state_store.load(); state["semantic_state"]={"count":len(semantics),"path":"semantic_state.json","source":MODEL_MINING_SOURCE}; state["stage_status"]["semantic_analysis"]="SUCCESS"; self.state_store.save(state)
+        hypothesis_rows=HypothesisAgent(self.hypotheses).propose(semantics,[]); state=self.state_store.load(); state["hypothesis_state"]={"count":len(hypothesis_rows),"source":MODEL_MINING_SOURCE}; state["stage_status"]["hypothesis"]="SUCCESS"; self.state_store.save(state)
         generated=[]; generator=FeatureGenerator(self.features)
         for hypothesis in hypothesis_rows: generated.extend(generator.generate(data,hypothesis))
         state=self.state_store.load(); state["feature_state"]={"generated":len(generated)}; state["stage_status"]["feature_engineering"]="SUCCESS"; self.state_store.save(state)
         dev_idx,oot_idx=temporal_split(data,time_field); dev_mask=pd.Series(data.index.isin(dev_idx),index=data.index); oot_mask=pd.Series(data.index.isin(oot_idx),index=data.index)
         governed={row["field"]:row for row in semantics}; safe_raw=[field for field,row in governed.items() if field in data and row["governance_decision"]=="KEEP" and row["semantic_role"] not in {"DATETIME","IDENTIFIER","POST_LOAN_FEATURE","SUSPECT_LEAKAGE","EXISTING_MODEL"} and field not in {"target7","is_old"}]
-        safe_raw=safe_raw[:30]; existing=data[safe_raw].select_dtypes(include=np.number)
+        # Audit the complete governed pool first. Truncating before this check could
+        # leave an unaudited target proxy outside the first 30 fields.
+        safe_raw,target_proxy_audit=remove_target_proxies(data,"target7",dev_idx,oot_idx,safe_raw)
+        target_proxy_audit["audited_feature_count"]=len(safe_raw)+len(target_proxy_audit["excluded_fields"])
+        safe_raw=safe_raw[:30]
+        existing=data[safe_raw].select_dtypes(include=np.number)
         validator=CheapValidator(); validated=[]
         for feature in generated:
             series=generator.rebuild(data,feature); result=validator.validate(feature["feature_name"],series,data["target7"],dev_mask,oot_mask,existing)
@@ -79,7 +89,8 @@ class ModelAgentOrchestrator:
             feature=self.features.update(feature["feature_id"],validation_result=result,status="VALIDATED" if result["status"]!="REJECTED" else "REJECTED",lr_eligible=lr_ok,lgbm_eligible=lgbm_ok); validated.append(feature)
             data[feature["feature_name"]]=series
         lr_new,lgbm_new=select_feature_pools(validated); state=self.state_store.load(); state["feature_state"].update(validated=sum(x["status"]!="REJECTED" for x in validated),lr_candidates=lr_new,lgbm_candidates=lgbm_new); state["stage_status"]["cheap_validation"]="SUCCESS"; self.state_store.save(state)
-        baseline_features=safe_raw or [field for field in data.select_dtypes(include=np.number).columns if field not in {"target7","is_old"}][:10]
+        if not safe_raw:raise ValueError("NO_SAFE_BASELINE_FEATURES_AFTER_TARGET_PROXY_AUDIT")
+        baseline_features=safe_raw
         x=data[baseline_features]; y=data["target7"]
         lr=self.trainer.train("LR",x.loc[dev_idx],y.loc[dev_idx],x.loc[oot_idx],y.loc[oot_idx],"lr_baseline")
         lgbm=self.trainer.train("LGBM",x.loc[dev_idx],y.loc[dev_idx],x.loc[oot_idx],y.loc[oot_idx],"lgbm_baseline")
@@ -87,13 +98,28 @@ class ModelAgentOrchestrator:
         champion="LGBM" if lgbm_gate and lgbm["metrics"]["oot_auc"]>=lr["metrics"]["oot_auc"] and lgbm["metrics"]["oot_ks"]>=lr["metrics"]["oot_ks"] else "LR"
         lr_snapshot=self.state_store.snapshot(parent_state_id=None,experiment_id=None,dataset_version="D1",feature_pool_version="F_BASE",model_config_version="LR_BASE",lr_features=baseline_features,lgbm_features=baseline_features,model_type="LR",model_params={"penalty":"l2"},metrics=lr["metrics"],is_best=champion=="LR",is_stable=lr_gate)
         lgbm_snapshot=self.state_store.snapshot(parent_state_id=lr_snapshot["state_id"],experiment_id=None,dataset_version="D1",feature_pool_version="F_BASE",model_config_version="LGBM_BASE",lr_features=baseline_features,lgbm_features=baseline_features,model_type="LGBM",model_params={},metrics=lgbm["metrics"],is_best=champion=="LGBM",is_stable=lgbm_gate)
-        state=self.state_store.load(); state["model_state"]={"champion":champion,"lr_baseline":{k:v for k,v in lr.items() if k!="pipeline"},"lgbm_baseline":{k:v for k,v in lgbm.items() if k!="pipeline"},"baseline_features":baseline_features}; state["stage_status"]["model_baseline"]="SUCCESS"; self.state_store.save(state)
+        state=self.state_store.load(); state["model_state"]={"champion":champion,"lr_baseline":{k:v for k,v in lr.items() if k!="pipeline"},"lgbm_baseline":{k:v for k,v in lgbm.items() if k!="pipeline"},"baseline_features":baseline_features,"target_proxy_audit":target_proxy_audit}; state["stage_status"]["model_baseline"]="SUCCESS"; self.state_store.save(state)
         champion_snapshot=lr_snapshot if champion=="LR" else lgbm_snapshot
         state=self.state_store.load(); state["current_state_id"]=champion_snapshot["state_id"]
         if champion_snapshot.get("is_stable"): state["last_stable_state_id"]=champion_snapshot["state_id"]
         self.state_store.save(state)
         diagnoses=DiagnosisAgent(self.diagnoses).diagnose(lgbm["metrics"] if champion=="LGBM" else lr["metrics"],feature_validations=[x.get("validation_result",{}) for x in validated]); state=self.state_store.load(); state["diagnosis_state"]={"count":len(diagnoses)}; state["stage_status"]["diagnosis"]="SUCCESS"; self.state_store.save(state)
-        summary={"dataset_id":self.dataset_id,"segment":"NEW","semantics":len(semantics),"hypotheses":len(hypothesis_rows),"generated_features":len(generated),"validated_features":sum(x["status"]!="REJECTED" for x in validated),"lr_baseline":lr["metrics"],"lgbm_baseline":lgbm["metrics"],"champion":champion,"current_state_id":self.state_store.load()["current_state_id"],"best_state_id":self.state_store.load()["best_state_id"],"last_stable_state_id":self.state_store.load()["last_stable_state_id"],"diagnoses":diagnoses}
+        source_target=pd.to_numeric(df["target7"],errors="coerce")
+        source_segment=pd.to_numeric(df["is_old"],errors="coerce")
+        parsed_time=pd.to_datetime(data[time_field],errors="coerce")
+        data_quality={
+            "source_rows":int(len(df)),"source_columns":int(len(df.columns)),
+            "labelled_rows":int(source_target.isin([0,1]).sum()),"label_coverage":float(source_target.isin([0,1]).mean()),
+            "new_rows":int((source_segment==0).sum()),"new_labelled_rows":int(len(data)),
+            "new_label_coverage":float(len(data)/max(1,int((source_segment==0).sum()))),
+            "old_rows":int((source_segment==2).sum()),
+            "old_labelled_rows":int(((source_segment==2)&source_target.isin([0,1])).sum()),
+            "application_time_field":time_field,"application_time_valid_rate":float(parsed_time.notna().mean()),
+            "application_time_min":str(parsed_time.min()),"application_time_max":str(parsed_time.max()),
+            "dev_rows":int(len(dev_idx)),"oot_rows":int(len(oot_idx)),
+            "model_scope":"NEW_WITH_BINARY_TARGET7","selection_scope":"TEMPORAL_OOT",
+        }
+        summary={"dataset_id":self.dataset_id,"segment":"NEW","mining_source":MODEL_MINING_SOURCE,"rule_features_used":False,"semantics":len(semantics),"hypotheses":len(hypothesis_rows),"generated_features":len(generated),"validated_features":sum(x["status"]!="REJECTED" for x in validated),"lr_baseline":lr["metrics"],"lgbm_baseline":lgbm["metrics"],"champion":champion,"target_proxy_audit":target_proxy_audit,"data_quality":data_quality,"current_state_id":self.state_store.load()["current_state_id"],"best_state_id":self.state_store.load()["best_state_id"],"last_stable_state_id":self.state_store.load()["last_stable_state_id"],"diagnoses":diagnoses}
         self._save_json("model_summary.json",summary); return summary
 
     def run_next_experiment(self, df: pd.DataFrame) -> dict[str,Any]:

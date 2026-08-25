@@ -6,6 +6,7 @@ from backend.app import config
 from backend.app.core.governance import govern
 from backend.app.main import app
 from backend.app.services.analysis_service import DATASETS
+from backend.app.services import analysis_service
 from backend.app.services.model_agent_service import agent
 
 
@@ -14,6 +15,16 @@ def main_data(n: int = 5000) -> pd.DataFrame:
     income=rng.lognormal(10,.5,n); debt=rng.gamma(3,10000,n); nonlinear=rng.normal(size=n)
     logit=-2.3+2.4*ratio+.000015*debt-.000008*income+.9*(nonlinear>1); target=rng.binomial(1,1/(1+np.exp(-logit)))
     return pd.DataFrame({'apply_time':pd.date_range('2024-01-01',periods=n,freq='h'),'is_old':0,'target7':target,'query_cnt_7d':short,'query_cnt_90d':long,'monthly_income':income,'debt_balance':debt,'nonlinear_signal':nonlinear,'drift_feature':rng.normal(np.arange(n)/n*2,1,n),'overdue_days':target*10+rng.normal(0,1,n),'customer_id':[f'C{i:07d}' for i in range(n)]})
+
+
+def test_dataset_restores_from_upload_after_restart(tmp_path, monkeypatch):
+    did='restore-test'; upload_root=tmp_path/'uploads'; directory=upload_root/did; directory.mkdir(parents=True)
+    pd.DataFrame({'is_old':[0,0,2,2],'target7':[0,1,0,1],'signal':[1.,2.,3.,4.]}).to_csv(directory/'data.csv',index=False)
+    monkeypatch.setattr(config,'UPLOAD_DIR',upload_root);DATASETS.pop(did,None)
+    restored=analysis_service.get_dataset(did)
+    assert restored['restored_from_disk'] is True
+    assert len(restored['df'])==4 and restored['rules']==[] and restored['governance'] is not None
+    DATASETS.pop(did,None)
 
 
 def test_model_agent_http_end_to_end(tmp_path, monkeypatch):
@@ -25,8 +36,10 @@ def test_model_agent_http_end_to_end(tmp_path, monkeypatch):
         response=client.post(f'/api/model-agent/{dataset_id}/run',json={'application_time_field':'apply_time'})
         assert response.status_code==200, response.text
         assert response.json()['segment']=='NEW'
+        assert response.json()['mining_source']=='GOVERNED_RAW_DATA' and response.json()['rule_features_used'] is False
         summary=client.get(f'/api/model-agent/{dataset_id}/summary')
         assert summary.status_code==200 and summary.json()['state']['current_state_id']
+        assert summary.json()['metrics_status']=='CURRENT'
         features=client.get(f'/api/model-agent/{dataset_id}/features').json()
         assert features and features[0]['formula']
         proposal=client.post(f'/api/model-agent/{dataset_id}/approvals',json={'action_type':'PRODUCTION_FEATURE_APPROVAL','payload':{'feature_ids':[features[0]['feature_id']]},'reason':'regression approval test','impact':'feature becomes production-approved'})
@@ -38,6 +51,13 @@ def test_model_agent_http_end_to_end(tmp_path, monkeypatch):
         assert approved['status']=='APPROVED' and approved['approved'] is True
         report=client.get(f'/api/model-agent/{dataset_id}/report')
         assert report.status_code==200 and '模型实验报告' in report.text
+        summary_path=config.MODEL_AGENT_DIR/dataset_id/'model_summary.json'
+        legacy=__import__('json').loads(summary_path.read_text(encoding='utf-8'))
+        legacy['lr_baseline'].pop('metrics_version',None);legacy['lgbm_baseline'].pop('metrics_version',None)
+        summary_path.write_text(__import__('json').dumps(legacy),encoding='utf-8')
+        stale=client.get(f'/api/model-agent/{dataset_id}/summary').json()
+        assert stale['metrics_status']=='STALE_REINITIALIZATION_REQUIRED'
+        assert stale['summary']['lr_baseline'].get('oot_auc') is None and stale['summary']['champion'] is None
         state=agent(dataset_id).state_store.load()
         state['evaluation_state']['non_finite']={'nan':float('nan'),'positive_infinity':float('inf')}
         agent(dataset_id).state_store.save(state)
