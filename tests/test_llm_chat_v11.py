@@ -1,6 +1,7 @@
 import json,sqlite3
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,7 +12,7 @@ from core.llm.bindings import BindingStore
 from core.llm.exceptions import AuthError,NoActiveBinding,ProviderTimeout,RateLimitError
 from core.llm.prompts import PromptRegistry
 from core.llm.provider import MockProvider
-from core.llm.runtime import LLMRuntime
+from core.llm.runtime import LLMRuntime,_repair_message
 from core.llm.schemas import LLMBindingInput
 from core.llm.storage import ChatStore
 
@@ -42,6 +43,13 @@ def test_llm_runtime(llm_env):
     row=_binding(llm_env[0]);result=llm_env[3].chat('GENERAL_CHAT',[{'role':'user','content':'hello'}],row['binding_id']);assert result['binding']['binding_id']==row['binding_id']
 def test_prompt_version(llm_env):assert llm_env[1].get('SEMANTIC_ANALYSIS')['prompt_id']=='semantic_v1'
 def test_phase1_prompt_versions(llm_env):assert [llm_env[1].get(x)['prompt_id'] for x in ('GENERAL_CHAT','ANALYSIS_AGENT','DECISION_AGENT')]==['general_v1','analysis_agent_v1','decision_agent_v1']
+def test_source_prompt_wins_over_stale_database_version(llm_env):
+    _,pr,_,_,_,db=llm_env
+    with sqlite3.connect(db) as con:con.execute("INSERT INTO prompt_versions VALUES(?,?,?,?,?,?,1)",('analysis_agent_v99','ANALYSIS_AGENT','v99','stale prompt','structured','2099-01-01'))
+    assert pr.get('ANALYSIS_AGENT')['prompt_id']=='analysis_agent_v1'
+def test_repair_message_contains_schema_and_validation_issue():
+    message=_repair_message('ANALYSIS_AGENT',ValueError('truncated JSON'))
+    assert 'Required JSON Schema' in message and 'analysis_summary' in message and 'truncated JSON' in message
 def test_conversation_create(llm_env):assert llm_env[2].create_conversation()['conversation_id'].startswith('C_')
 def test_message_persistence(llm_env):
     cs=llm_env[2];c=cs.create_conversation();cs.add_message(conversation_id=c['conversation_id'],role='user',content='x',status='SUCCESS');assert cs.conversation(c['conversation_id'])['messages'][0]['content']=='x'
@@ -68,6 +76,16 @@ def test_stream_message(llm_env):
     client,a,_,c=_api_setup(llm_env)
     with client.stream('POST',f"/api/agent-chat/conversations/{c['conversation_id']}/messages/stream",json={'content':'stream me','binding_id':a['binding_id']}) as response:text=''.join(response.iter_text())
     assert response.status_code==200 and 'event: delta' in text and 'event: done' in text
+def test_general_chat_cannot_claim_execution(llm_env):
+    client,a,_,c=_api_setup(llm_env);cid=c['conversation_id']
+    result=client.post(f'/api/agent-chat/conversations/{cid}/messages',json={'content':'随机挖掘，马上开始','binding_id':a['binding_id']}).json()
+    assert result['assistant_message']['runtime_type']=='DETERMINISTIC'
+    assert '未执行任何挖掘或实验' in result['assistant_message']['content']
+    assert result['assistant_message']['tool_calls']==[] and result['proposals']==[]
+def test_general_chat_execution_guard_applies_to_stream(llm_env):
+    client,a,_,c=_api_setup(llm_env)
+    with client.stream('POST',f"/api/agent-chat/conversations/{c['conversation_id']}/messages/stream",json={'content':'开始运行特征实验','binding_id':a['binding_id']}) as response:text=''.join(response.iter_text())
+    assert response.status_code==200 and '未执行任何挖掘或实验' in text and 'event: done' in text
 def test_switch_binding_history(llm_env):
     client,a,b,c=_api_setup(llm_env);cid=c['conversation_id'];client.post(f'/api/agent-chat/conversations/{cid}/messages',json={'content':'one','binding_id':a['binding_id']});client.post(f'/api/agent-chat/conversations/{cid}/messages',json={'content':'two','binding_id':b['binding_id']});traces=client.get('/api/agent-chat/calls',params={'conversation_id':cid}).json();messages=client.get(f'/api/agent-chat/conversations/{cid}').json()['messages'];assistant=[x for x in messages if x['role']=='assistant'];assert {x['binding_id'] for x in traces}=={a['binding_id'],b['binding_id']} and [x['binding_id'] for x in assistant]==[a['binding_id'],b['binding_id']]
 def test_switch_agent_history(llm_env):
@@ -92,6 +110,9 @@ def test_chat_scroll_layout():
 def test_proposal_create(llm_env):
     client,a,_,c=_api_setup(llm_env);client.post(f"/api/agent-chat/conversations/{c['conversation_id']}/messages",json={'content':'idea','agent_type':'HYPOTHESIS','binding_id':a['binding_id']});assert len(client.get('/api/agent-chat/proposals').json())==2
 def test_proposal_accept(llm_env):
-    client,a,_,c=_api_setup(llm_env);client.patch(f"/api/agent-chat/conversations/{c['conversation_id']}",json={'dataset_id':'dataset-x'});client.post(f"/api/agent-chat/conversations/{c['conversation_id']}/messages",json={'content':'idea','agent_type':'HYPOTHESIS','binding_id':a['binding_id']});p=next(x for x in client.get('/api/agent-chat/proposals').json() if x['proposal_type']=='FEATURE_CANDIDATE');result=client.post(f"/api/agent-chat/proposals/{p['proposal_id']}/accept").json();assert result['status']=='EXECUTED' and result['registry_object_id']
+    client,a,_,c=_api_setup(llm_env);service.DATASETS['dataset-x']={'df':pd.DataFrame({'query_cnt_7d':[1,2],'query_cnt_90d':[2,4]})};client.patch(f"/api/agent-chat/conversations/{c['conversation_id']}",json={'dataset_id':'dataset-x'});client.post(f"/api/agent-chat/conversations/{c['conversation_id']}/messages",json={'content':'idea','agent_type':'HYPOTHESIS','binding_id':a['binding_id']});p=next(x for x in client.get('/api/agent-chat/proposals').json() if x['proposal_type']=='FEATURE_CANDIDATE');result=client.post(f"/api/agent-chat/proposals/{p['proposal_id']}/accept").json();specs=client.get('/api/feature-specs',params={'dataset_id':'dataset-x'}).json();assert result['status']=='SAVED' and result['registry_object_id'].startswith('FS_') and len(specs)==1 and specs[0]['proposal_id']==p['proposal_id']
+
+def test_saved_feature_proposal_is_idempotent(llm_env):
+    client,a,_,c=_api_setup(llm_env);service.DATASETS['dataset-x']={'df':pd.DataFrame({'query_cnt_7d':[1,2],'query_cnt_90d':[2,4]})};client.patch(f"/api/agent-chat/conversations/{c['conversation_id']}",json={'dataset_id':'dataset-x'});client.post(f"/api/agent-chat/conversations/{c['conversation_id']}/messages",json={'content':'idea','agent_type':'HYPOTHESIS','binding_id':a['binding_id']});p=next(x for x in client.get('/api/agent-chat/proposals').json() if x['proposal_type']=='FEATURE_CANDIDATE');accepted=client.post(f"/api/agent-chat/proposals/{p['proposal_id']}/accept").json();again=client.post(f"/api/feature-specs/from-proposal/{p['proposal_id']}",json={'dataset_id':'dataset-x'}).json();assert accepted['registry_object_id']==again['feature_spec_id'] and len(client.get('/api/feature-specs',params={'dataset_id':'dataset-x'}).json())==1
 def test_proposal_reject(llm_env):
     client,a,_,c=_api_setup(llm_env);client.post(f"/api/agent-chat/conversations/{c['conversation_id']}/messages",json={'content':'idea','agent_type':'HYPOTHESIS','binding_id':a['binding_id']});p=client.get('/api/agent-chat/proposals').json()[0];assert client.post(f"/api/agent-chat/proposals/{p['proposal_id']}/reject").json()['status']=='REJECTED'

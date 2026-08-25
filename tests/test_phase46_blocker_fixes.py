@@ -180,9 +180,11 @@ def test_safe_unknown_operator_needs_new_operator():
 
 
 def test_phase45_case_07_future_leakage():
-    frame = pd.read_csv("test_artifacts/phase45_diagnostic/datasets/07_future_leakage/data.csv")
-    frame["event_time"] = pd.to_datetime(frame["event_time"])
-    frame["application_time"] = pd.to_datetime(frame["application_time"])
+    frame = pd.DataFrame({
+        "device_id": ["A", "A", "A", "B", "B"],
+        "event_time": pd.to_datetime(["2024-01-01 09:00", "2024-01-02 08:00", "2024-01-02 11:00", "2024-01-01 12:00", "2024-01-03 13:00"]),
+        "application_time": pd.to_datetime(["2024-01-02 10:00", "2024-01-02 10:00", "2024-01-02 10:00", "2024-01-03 12:00", "2024-01-03 12:00"]),
+    })
     spec = _spec('COUNT_OVER_WINDOW(device_id,event_time,"24h")', feature_id="FS_CASE07")
     plan = FeatureCompiler().compile(spec, schema_fields=set(frame.columns), available_sources={"APPLICATION_EVENT_TABLE"})
     actual = FeatureExecutor().execute(spec, plan, frame)

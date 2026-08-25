@@ -65,6 +65,17 @@ def test_ast_parser_and_normalization():
     node=parse_expression('safe_div(query_cnt_7d, query_cnt_90d)');assert operators(node)==['SAFE_DIV'];assert normalized_ast(node)==normalized_ast(parse_expression('SAFE_DIV(query_cnt_7d,query_cnt_90d)'))
 
 
+def test_infix_arithmetic_is_compiled_to_safe_dsl():
+    division=parse_expression('query_cnt_7d / query_cnt_90d')
+    composite=parse_expression('(query_cnt_7d + 1) * 2 - query_cnt_90d')
+    business_fields=parse_expression('AppRiskVar__app_list_num_7days_s_total_pct / AppRiskVar__app_list_num_90days_s_total_pct')
+    assert operators(division)==['SAFE_DIV']
+    assert operators(composite)==['ADD','MUL','SUB']
+    assert operators(business_fields)==['SAFE_DIV']
+    plan=compile_direct(spec(dsl_expression='query_cnt_7d / query_cnt_90d'),['query_cnt_7d','query_cnt_90d'])
+    assert plan.compiler_status=='SUPPORTED_TEMPLATE' and plan.operators==['SAFE_DIV']
+
+
 def test_ast_validator():
     unsupported=compile_direct(spec(dsl_expression='UNKNOWN_OP(query_cnt_7d)'),['query_cnt_7d','query_cnt_90d'])
     missing=compile_direct(spec(dsl_expression='SAFE_DIV(query_cnt_7d,missing_field)'),['query_cnt_7d','query_cnt_90d'])
@@ -80,6 +91,11 @@ def test_malicious_expression_block(expression):
 def test_column_safe_div():
     frame=pd.DataFrame({'a':[2,1,np.nan,4],'b':[1,0,2,np.nan]});s=spec(source_fields=['a','b'],dsl_expression='SAFE_DIV(a,b)');plan=compile_direct(s,frame.columns);values=FeatureExecutor().execute(s,plan,frame)
     assert values.iloc[0]==2 and values.iloc[1:].isna().all() and plan.compiler_status=='SUPPORTED_TEMPLATE'
+
+
+def test_infix_division_executes_with_zero_denominator_guard():
+    frame=pd.DataFrame({'a':[2,1],'b':[1,0]});s=spec(source_fields=['a','b'],dsl_expression='a / b');plan=compile_direct(s,frame.columns);values=FeatureExecutor().execute(s,plan,frame)
+    assert values.iloc[0]==2 and pd.isna(values.iloc[1])
 
 
 def test_window_count_24h_and_no_future_leakage(engine_env):

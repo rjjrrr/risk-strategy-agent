@@ -1,49 +1,58 @@
-# Risk Strategy Agent V0.6
+# Risk Strategy Agent
 
-内部风控策略分析与验证工作台。根目录仅保留主接口 `app.py`；规则引擎模块统一位于 `core/`。V0.6 新增数据概览、字段质量可视化、严格规则评级、Jaccard Rule Group、变量分箱分析、导出和企业级 React 工作台。
+面向风控策略、产品和业务人员的数据分析、规则挖掘、候选特征验证、模型实验与工作流平台。完整能力和验收结论见 `RISK_STRATEGY_AGENT_REPORT.md`。
 
-## Backend
+## 安装
 
-```bash
-cd backend
+```powershell
+conda activate py3.9
 pip install -r requirements.txt
-python backend/run.py
-
-# 或者在项目根目录执行
-python -m backend.app
-```
-
-V0.5 关键治理：贷后时间与逾期表现字段标记为 `POST_LOAN_FEATURE` / `SUSPECT_LEAKAGE`；数字手机号识别为 `IDENTIFIER`；camelCase 的 `maritalStatus` 不再因包含 `status` 被误杀；小于 300 样本的客群使用更严格 A 级门槛。人工覆盖保存在 `backend/uploads/{dataset_id}/governance_override.json`。
-
-默认地址：`http://localhost:8000`，Swagger：`http://localhost:8000/docs`。
-
-## Frontend
-
-```bash
 cd frontend
-npm install
-npm run dev
+cmd /c npm install
 ```
 
-默认地址：`http://localhost:5173`。
+## 默认智谱配置
 
-## CLI
+```powershell
+$env:ZHIPU_API_KEY="你的智谱密钥"
+$env:ZHIPU_MODEL="glm-4-plus"
+```
 
-```bash
-pip install -r requirements.txt
+后端会自动创建“智谱 GLM（默认）”绑定。密钥只从环境变量读取，不写入仓库或数据库。
+
+## 启动后端
+
+在项目根目录执行：
+
+```powershell
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+```
+
+API：`http://127.0.0.1:8000`，Swagger：`http://127.0.0.1:8000/docs`。
+
+## 启动前端
+
+新开终端：
+
+```powershell
+cd frontend
+cmd /c npm run dev
+```
+
+访问：`http://127.0.0.1:5173`。
+
+## CLI 规则挖掘
+
+```powershell
 python app.py --input data.csv
 ```
 
-支持 `--target`、`--segment-field`、`--output-dir`，默认分别为 `target7`、`is_old`、`outputs`。输出仅包含字段治理、候选规则和简洁报告三个文件。NEW/OLD 独立计算基准坏率、规则、Lift 与 Bootstrap。LLM 为可选解释层，V0 核心引擎不依赖 LLM。
-V0.6 新增 API：
+可选参数：`--target`、`--segment-field`、`--output-dir`。
 
-```text
-GET /api/analysis/{dataset_id}/overview
-GET /api/analysis/{dataset_id}/variables/{field}/bins
-GET /api/analysis/{dataset_id}/rule-groups
-GET /api/analysis/{dataset_id}/rule-groups/{rule_group_id}
-GET /api/analysis/{dataset_id}/export/rules
-GET /api/analysis/{dataset_id}/export/governance
-GET /api/analysis/{dataset_id}/export/report
-GET /api/analysis/{dataset_id}/export/all
+## 唯一全流程验收命令
+
+```powershell
+python scripts/full_flow_acceptance.py
 ```
+
+该脚本执行全量后端回归、中文映射扫描、前端构建、Git 检查、密钥扫描和智谱默认绑定检查，结果写入 `test_artifacts/full_flow/latest.json`。

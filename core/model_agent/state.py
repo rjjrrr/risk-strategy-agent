@@ -103,10 +103,16 @@ class ModelAgentStateStore:
             raise ValueError("No stable or best state is available for rollback")
         snapshot = self.get_snapshot(target)
         state["current_state_id"] = target
+        previous = state.get("model_state", {})
+        model_type = snapshot["model_type"]
+        metric_key = "lr_baseline" if model_type == "LR" else "lgbm_baseline"
+        model_record = {**previous.get(metric_key, {}), "metrics": snapshot["metrics"]}
+        active_features = snapshot["lr_features"] if model_type == "LR" else snapshot["lgbm_features"]
         state["model_state"] = {
-            "model_type": snapshot["model_type"], "model_params": snapshot["model_params"],
-            "lr_features": snapshot["lr_features"], "lgbm_features": snapshot["lgbm_features"],
-            "metrics": snapshot["metrics"],
+            **previous, "champion": model_type, metric_key: model_record,
+            "baseline_features": active_features, "model_type": model_type,
+            "model_params": snapshot["model_params"], "lr_features": snapshot["lr_features"],
+            "lgbm_features": snapshot["lgbm_features"], "metrics": snapshot["metrics"],
         }
         state["experiment_state"]["last_rollback_at"] = utc_now()
         self.save(state)

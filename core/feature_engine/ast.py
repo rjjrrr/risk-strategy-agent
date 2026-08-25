@@ -10,7 +10,8 @@ from .exceptions import FeatureSpecInvalid
 
 ALIASES={"SAFE_DIVIDE":"SAFE_DIV","SAFEDIV":"SAFE_DIV","MISSING":"MISSING_FLAG","AND":"BOOLEAN_AND"}
 COMPARE={py_ast.Eq:"EQ",py_ast.NotEq:"NE",py_ast.Gt:"GT",py_ast.GtE:"GE",py_ast.Lt:"LT",py_ast.LtE:"LE",py_ast.In:"IN"}
-FORBIDDEN=("__","lambda","import ","from ","df[","system(","subprocess","open(","compile(","globals(","locals(","getattr(","setattr(","delattr(",";","\n")
+BINOP={py_ast.Add:"ADD",py_ast.Sub:"SUB",py_ast.Mult:"MUL",py_ast.Div:"SAFE_DIV"}
+FORBIDDEN=("lambda","import ","from ","df[","system(","subprocess","open(","compile(","globals(","locals(","getattr(","setattr(","delattr(",";","\n")
 FORBIDDEN_NAMES={"eval","exec","__import__","open","compile","globals","locals","getattr","setattr","delattr"}
 
 
@@ -81,6 +82,10 @@ def _convert(node: py_ast.AST) -> Node:
     if isinstance(node,py_ast.Call):
         if not isinstance(node.func,py_ast.Name):raise FeatureSpecInvalid("Only named DSL operators are allowed")
         return OperatorNode(node.func.id,[_convert(x) for x in node.args],{x.arg:_convert(x.value) for x in node.keywords if x.arg})
+    if isinstance(node,py_ast.BinOp):
+        op=BINOP.get(type(node.op))
+        if not op:raise FeatureSpecInvalid("Arithmetic operator is not supported")
+        return OperatorNode(op,[_convert(node.left),_convert(node.right)])
     if isinstance(node,py_ast.Compare) and len(node.ops)==1 and len(node.comparators)==1:
         op=COMPARE.get(type(node.ops[0]))
         if not op:raise FeatureSpecInvalid("Comparison is not supported")

@@ -11,7 +11,9 @@ def test_state_snapshot_best_and_last_stable(tmp_path):
     assert state['current_state_id']==second['state_id']
     assert state['best_state_id']==first['state_id']==state['last_stable_state_id']
     rolled=store.rollback()
-    assert rolled['state_id']==first['state_id'] and store.load()['current_state_id']==first['state_id']
+    restored=store.load()
+    assert rolled['state_id']==first['state_id'] and restored['current_state_id']==first['state_id']
+    assert restored['model_state']['champion']=='LR' and restored['model_state']['lr_baseline']['metrics']['oot_auc']==.65
 
 
 def test_registries_and_duplicate_experiment(tmp_path):

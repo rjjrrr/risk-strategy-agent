@@ -61,8 +61,13 @@ def generated_features(dataset_id:str):return FeatureRegistry(_root(dataset_id))
 def spec_from_proposal(dataset_id:str,proposal_id:str)->dict:
     ds=_dataset(dataset_id);proposal=agent_chat_service.store.proposal(proposal_id)
     if proposal.get('proposal_type')!='FEATURE_CANDIDATE':raise ValueError('Only FEATURE_CANDIDATE can become FeatureSpec')
+    conversation=agent_chat_service.store.conversation(proposal['conversation_id'])
+    if conversation.get('dataset_id')!=dataset_id:raise ValueError('Proposal does not belong to this dataset')
+    if proposal.get('status') in {'REJECTED','REJECTED_BY_USER'}:raise ValueError('Rejected proposal cannot become FeatureSpec')
+    registry=FeatureSpecRegistry(_root(dataset_id));existing=next((row for row in registry.all() if row.get('proposal_id')==proposal_id),None)
+    if existing:return existing
     payload={**proposal['payload'],'proposal_id':proposal_id};spec=normalize_proposal(payload,dataset_id,dataset_version(ds['df']))
-    registry=FeatureSpecRegistry(_root(dataset_id));registry.add(spec.model_dump());return spec.model_dump()
+    registry.add(spec.model_dump());return spec.model_dump()
 
 
 def create_spec(dataset_id:str,payload:dict[str,Any])->dict:

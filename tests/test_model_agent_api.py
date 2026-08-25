@@ -7,7 +7,13 @@ from backend.app.core.governance import govern
 from backend.app.main import app
 from backend.app.services.analysis_service import DATASETS
 from backend.app.services.model_agent_service import agent
-from scripts.model_agent_v1_regression import main_data
+
+
+def main_data(n: int = 5000) -> pd.DataFrame:
+    rng=np.random.default_rng(42); long=rng.gamma(5,10,n); ratio=np.clip(rng.beta(2,5,n)*1.5,0,1.5); short=long*ratio
+    income=rng.lognormal(10,.5,n); debt=rng.gamma(3,10000,n); nonlinear=rng.normal(size=n)
+    logit=-2.3+2.4*ratio+.000015*debt-.000008*income+.9*(nonlinear>1); target=rng.binomial(1,1/(1+np.exp(-logit)))
+    return pd.DataFrame({'apply_time':pd.date_range('2024-01-01',periods=n,freq='h'),'is_old':0,'target7':target,'query_cnt_7d':short,'query_cnt_90d':long,'monthly_income':income,'debt_balance':debt,'nonlinear_signal':nonlinear,'drift_feature':rng.normal(np.arange(n)/n*2,1,n),'overdue_days':target*10+rng.normal(0,1,n),'customer_id':[f'C{i:07d}' for i in range(n)]})
 
 
 def test_model_agent_http_end_to_end(tmp_path, monkeypatch):

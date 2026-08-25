@@ -1,11 +1,43 @@
 # Model Agent Change Log
 
+## Change #056 - Phase 6.5 Surrogate diagnostic and calibration
+
+- Added Synthetic V1 target/distribution audit, Oracle/random/historical/Phase5/model baselines, formal time-split versus diagnostic stratified-random comparison, unified classification/regression/ranking metrics, distribution-shift checks, permutation importance and feature-group ablation.
+- Added Platt probability calibration with before/after Brier, Log Loss and ECE, plus uncertainty based jointly on unseen categories, nearest meta-experiment distance and probability margin.
+- Replaced count-only ACTIVE status with a strict gate: >=100 records, AUC >=.60 or gain Spearman >=.20, Surrogate NDCG@10 above Random and no worse than Phase5. Low-signal models are disabled and ranking falls back to Phase5.
+- Added Synthetic Experiment History V2 with 1,500 noisy, nontrivial experiments, explicit versioned Ground Truth, model interactions, drift/correlation penalties, novelty, historical credit, time drift and counterexamples. Latent Ground Truth fields are test-only and excluded from Meta Features.
+- Added `/api/surrogate/diagnostics`, richer dashboard diagnostics, OOD warnings and Historical/Surrogate/Final ranking labels.
+- Added 16 focused Phase 6.5 tests; the historical diagnostic and acceptance results are now consolidated in `RISK_STRATEGY_AGENT_REPORT.md`.
+- Production limitation remains explicit: the real Registry is below 30 usable experiments, so production ranking remains `PHASE5_FALLBACK` regardless of synthetic validation.
+
+## Change #055 - Phase 6 Experiment Memory and Surrogate ranking
+
+- Added raw-row-free Experiment Memory records, signature deduplication, dataset/version scope, working/episodic/statistical summaries, similar-experiment retrieval and bounded Decision Context integration.
+- Added Feature Type, Semantic Domain, Action, model-specific and Hypothesis Pattern aggregate Credit with FAILED isolation, Beta smoothing and sample-count confidence.
+- Added leakage-safe pre-experiment Meta Features, timestamp-ordered Surrogate training, LightGBM with GradientBoosting fallback, classification/regression/Top-K metrics, prediction trace and a persistent Surrogate Registry.
+- Added deterministic candidate ranking with expected gain, historical Credit, novelty, cost/risk, uncertainty, same-dataset priority, 70/30 exploration/exploitation and Phase 5 fallback.
+- Added Memory/Credit/Surrogate/Ranking APIs, manual training confirmation, actual Counterfactual feedback refresh and an Experiment Memory frontend dashboard that separates Prediction from Actual Result.
+- Added 19 named Phase 6 tests and `scripts/phase6_acceptance.py` with 240 explicitly SYNTHETIC meta experiments; synthetic history is never included in production Credit.
+- Known limitation: V1 retraining is manual, and real registries below 30 usable experiments remain `SURROGATE_INSUFFICIENT_DATA` by design.
+
+## Change #054 - Phase 5 Decision Agent and experiment feedback loop
+
+- Added structured DecisionOutput, full diagnosis/action taxonomies, bounded Decision Context, evidence/credit/novelty/cost/risk ranking, deterministic 70/30 candidate policy, single-major-factor ExperimentPlan validation, and fixed Decision budgets (3 rounds / 3 experiments per round / 6 total).
+- Added persistent Decision Loop, Decision/Plan/Approval/Tool Audit registries with CURRENT/BEST/LAST_STABLE pointers, explicit STOP/BUDGET/WAITING_APPROVAL/ROLLBACK states, two-no-gain stopping, leakage pool isolation, and feedback context containing previous action, experiment, delta metrics, credit and state changes.
+- Added the allowlisted Tool Registry for validation, LR/LGBM counterfactual, ablation, evaluation, state read/rollback, credit read and Analysis request. Arbitrary tools, code, Python, shell, SQL and file-operation arguments are rejected before execution.
+- Integrated existing deterministic Feature Validation, Counterfactual, Credit and Model State services; failed/unstable training rolls back without assigning negative Feature Credit, while neutral ablation creates a permanent-removal human gate.
+- Upgraded Decision Agent structured LLM validation and prompt while preserving frozen `decision_agent_v1` trace identity; one JSON repair remains in LLMRuntime, and Provider failure or Mock runtime cannot execute Decision tools.
+- Added Decision APIs and a stepwise frontend Decision Loop page with Start Round, Run Selected Experiment, Approve, Reject, Rollback and Stop controls; no unbounded auto-run was added.
+- Added 19 focused Phase 5 tests plus API lifecycle/security coverage. Full regression: 181 passed; frontend production build, `git diff --check`, secret scan and runtime/artifact ignore checks passed.
+- Phase 5 acceptance: 10/10 Decision cases PASS; real Python feedback loop using historical `device_risk_weighted_score` evidence PASS; final `PHASE5_DECISION=PHASE5_COMPLETE`. Results are consolidated in `RISK_STRATEGY_AGENT_REPORT.md`.
+- Known limitation: no `ZHIPU_API_KEY` was present, so live Decision LLM acceptance was not run; deterministic policy and real Python experiment closure were verified, and no Mock was treated as real execution evidence.
+
 ## Change #053 - Phase 1-4 freeze verification
 
 - Phase 4.5 Rerun: executed the complete 15-case diagnostic twice on final code; both runs returned 15 PASS, 0 FAIL, 0 WARNING, 0 BLOCKER, 0 HIGH with identical core decisions.
 - Freeze Verification: Case 07 returned zero mismatches/future/same-time history; Case 10 returned all `INVALID_EXPRESSION`, all non-executable, and zero malicious `NEEDS_NEW_OPERATOR` classifications.
 - Final regression: 162 pytest cases passed; frontend production build passed; `git diff --check`, tracked-source token scan, and runtime/upload/artifact ignore checks passed.
-- Generated `PHASE1_4_FREEZE_REPORT.md` from final diagnostic artifacts. Final decision: `READY_TO_FREEZE`.
+- Phase 1–4 final decision: `READY_TO_FREEZE`; historical results are consolidated in `RISK_STRATEGY_AGENT_REPORT.md`.
 - Current environment has no `ZHIPU_API_KEY`, so real LLM diagnostic remains `NOT_RUN`; Phase 2 real-provider smoke evidence is retained and no Mock was presented as real evidence.
 
 ## Change #052 - Phase 4.6 blocker fixes
@@ -460,3 +492,34 @@
 - Tests: 100 items per source explosion test, NEW/OLD isolation, cache/preview API, valid JSON and 8,000-token enforcement.
 - Result: deterministic context remains valid JSON and within budget; raw data rows and OLD rule evidence are excluded.
 - Known issues: token estimation is intentionally conservative and dependency-free rather than provider-tokenizer exact.
+
+## Change #046 - Phase 7A real-experiment surrogate shadow mode
+
+- Shadow Mode: added a dataset-scoped prediction, error, and model-state registry with immutable Phase5 final-selection ownership.
+- Prediction Reconciliation: records every candidate before execution and links Actual/Credit only for the Phase5-selected candidate or a separately human-approved comparison experiment; unexecuted candidates keep a null label.
+- Real Evaluation: added REAL-only ALL_HISTORY, RECENT_30, RECENT_50, calibration, OOD, prediction/gain distribution, ranking, head-to-head, drift, and error-breakdown diagnostics.
+- Promotion Gate: added 30/100 real-data checkpoints, manual retraining, challenger state, and manual `ACTIVE_CANDIDATE` gate; Phase 7A promotion still cannot affect final ranking or production.
+- UI: added Surrogate Shadow Dashboard and explicit Phase5 Rank / Shadow Rank / Final Selection labels in Decision Loop.
+- Acceptance: added 15 named Phase 7A tests, acceptance script, API-route verification, security scan, frontend build, and full regression validation.
+- Result: 231 tests passed; frontend production build passed; `PHASE7A_DECISION=SHADOW_MODE_COMPLETE` pending truthful report generation with the final verification summaries.
+- Known limitations: current REAL memory is below the activation threshold; ranking metrics require at least three comparable actual outcomes from the same decision round.
+
+## Change #047 - Phase 7B LangGraph workflow orchestration
+
+- Workflow State: added lightweight `RiskGraphState`; DataFrames, raw rows, model objects, full artifacts and full contexts are rejected from Graph State.
+- Nodes and Routing: compiled the existing research lifecycle into 20 adapter-backed nodes with conditional proposal, compiler, validation, decision, failure, rollback and budget routes.
+- Checkpoint: added durable local `SqliteSaver` checkpoints keyed by thread ID; checkpoints restore workflow position and never replace business state registries.
+- Interrupt / Resume: added proposal, feature, experiment and model-change human review using LangGraph `interrupt` and `Command(resume=...)`.
+- Rollback Integration: model failure and unstable outcomes route to the existing business rollback service while preserving the forward-only Graph audit timeline.
+- Idempotency and Recovery: completed-node patches and business registries prevent duplicate feature execution, experiments and credit updates after resume; interrupted experiments are never assumed successful.
+- UI: added Workflow Run node graph, timeline, state/budget indicators, approvals, retry, rollback and cancellation controls.
+- Acceptance: added 16 Phase 7B graph tests; full regression/build results are consolidated in `RISK_STRATEGY_AGENT_REPORT.md`.
+
+## Change #048 - Chinese business mapping, guide and product acceptance
+
+- Chinese Mapping: added one frontend business-label layer for validation, credit, diagnosis, decision action, model state, workflow, approval, surrogate and common statuses; unknown values fall back safely while preserving their technical originals.
+- Core UI: localized Feature, Decision, Workflow, Shadow, Experiment Memory, Model Experiment, Governance, Rules and the primary Agent Chat workflow; metric explanations cover AUC, KS, Lift, PSI, IV, Coverage, Bad Rate and OOT.
+- Guide Page: added a first-level business guide with eight-step quick start, workflow/page explanations, Agent/Python boundaries, incremental-effect explanation, approvals, metric dictionary, FAQ, anchors and navigation-only buttons.
+- Quality Guard: added `check_ui_chinese_mapping.py` and productization tests for all mapping groups, unknown fallback, Guide anchors/routes and safety boundaries.
+- Fix: removed a duplicate Agent Chat Trace/Context drawer render found during product review.
+- Acceptance: full pytest, frontend build, Phase 3–7B guards, mapping scan, secret scan and `git diff --check` pass. Browser manual acceptance was unavailable and is recorded truthfully in `RISK_STRATEGY_AGENT_REPORT.md`.

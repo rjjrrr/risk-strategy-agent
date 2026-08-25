@@ -101,10 +101,18 @@ class ModelAgentOrchestrator:
         if stop: state["stop_reason"]=stop; self.state_store.save(state); return {"action":"STOP","reason":stop}
         plan=self.planner.choose(self.hypotheses.all(),self.experiments.all(),state["budget"],self.diagnoses.all())
         if plan["action"]!="RUN_EXPERIMENT": return plan
-        hypothesis=self.hypotheses.get(plan["hypothesis_id"]); candidates=[x for x in self.features.all() if x.get("hypothesis_id")==hypothesis["hypothesis_id"] and x.get("status")!="REJECTED"]
+        hypothesis=self.hypotheses.get(plan["hypothesis_id"]); candidates=[x for x in self.features.all() if x.get("hypothesis_id")==hypothesis["hypothesis_id"] and x.get("status")=="VALIDATED"]
         if not candidates: self.hypotheses.update(hypothesis["hypothesis_id"],status="REJECTED"); return {"action":"STOP","reason":"NO_VALIDATED_FEATURE_FOR_HYPOTHESIS"}
         feature=candidates[0]; data=self._new_data(df,"target7","is_old"); time_field=state["data_state"]["time_field"]; data[feature["feature_name"]]=FeatureGenerator.rebuild(data,feature); dev_idx,oot_idx=temporal_split(data,time_field)
-        baseline=state["model_state"]; model_type=baseline["champion"]; base_metrics=baseline["lr_baseline" if model_type=="LR" else "lgbm_baseline"]["metrics"]; features=list(baseline["baseline_features"])+[feature["feature_name"]]
+        baseline=state.get("model_state",{}); current_id=state.get("current_state_id")
+        current=self.state_store.get_snapshot(current_id) if current_id else None
+        model_type=(current or {}).get("model_type") or baseline.get("champion") or baseline.get("model_type")
+        if model_type not in {"LR","LGBM"}: raise ValueError("MODEL_AGENT_NOT_INITIALIZED: 请先点击初始化，生成可用的基线模型")
+        metric_key="lr_baseline" if model_type=="LR" else "lgbm_baseline"
+        base_metrics=(current or {}).get("metrics") or baseline.get(metric_key,{}).get("metrics") or baseline.get("metrics")
+        if not base_metrics: raise ValueError("MODEL_STATE_INCOMPLETE: 当前版本缺少基线指标，请重新初始化")
+        active_features=list((current or {}).get("lr_features" if model_type=="LR" else "lgbm_features") or baseline.get("baseline_features") or [])
+        features=list(dict.fromkeys(active_features+[feature["feature_name"]]))
         experiment=ExperimentManager(self.experiments,self.state_store,self.evaluator).start("FEATURE_ADD",hypothesis["hypothesis_id"],f"Add {feature['feature_name']}",{"added_features":[feature["feature_id"]]},model_type)
         result=self.trainer.train(model_type,data.loc[dev_idx,features],data.loc[dev_idx,"target7"],data.loc[oot_idx,features],data.loc[oot_idx,"target7"],experiment["experiment_id"])
         diagnoses=DiagnosisAgent(self.diagnoses).diagnose(result["metrics"],feature_validations=[feature.get("validation_result",{})],related_experiment=experiment["experiment_id"])

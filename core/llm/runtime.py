@@ -17,6 +17,21 @@ def _json_object(text:str):
     start,end=value.find('{'),value.rfind('}')
     if start<0 or end<start:raise ValueError('No JSON object found')
     return json.loads(value[start:end+1])
+def _validation_issue(exc:Exception)->str:
+    if isinstance(exc,ValidationError):
+        issues=[]
+        for row in exc.errors(include_url=False)[:8]:
+            location='.'.join(str(x) for x in row.get('loc',())) or 'root'
+            issues.append(f"{location}: {row.get('msg','invalid value')}")
+        return '; '.join(issues)
+    return str(exc)[:500]
+def _repair_message(agent_type:str,exc:Exception)->str:
+    schema=STRUCTURED_SCHEMAS[agent_type].model_json_schema()
+    return (
+        "The previous response was invalid or incomplete. Return exactly one compact JSON object and no markdown. "
+        "Do not repeat the analysis. Correct these validation issues: " + _validation_issue(exc) +
+        "\nRequired JSON Schema:\n" + json.dumps(schema,ensure_ascii=False,separators=(',',':'))
+    )
 class LLMRuntime:
     def __init__(self,bindings:BindingStore,prompts:PromptRegistry):self.bindings=bindings;self.prompts=prompts
     def _provider(self,binding):
@@ -44,11 +59,11 @@ class LLMRuntime:
         parsed=None;repair=False
         if agent_type in STRUCTURED_SCHEMAS:
             try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(_json_object(result['content'])).model_dump()
-            except (ValueError,ValidationError):
-                repair=True;repair_messages=messages+[{'role':'assistant','content':result['content']},{'role':'user','content':'Repair the previous answer into valid JSON matching the required schema. Return JSON only.'}]
+            except (ValueError,ValidationError) as first_error:
+                repair=True;repair_messages=messages+[{'role':'assistant','content':result['content']},{'role':'user','content':_repair_message(agent_type,first_error)}]
                 repaired=provider.chat(repair_messages,model=binding['model'],temperature=0,max_tokens=binding['max_tokens'],response_format={'type':'json_object'});result=repaired
                 try:parsed=STRUCTURED_SCHEMAS[agent_type].model_validate(_json_object(result['content'])).model_dump()
-                except (ValueError,ValidationError) as e:raise InvalidResponse('Structured response failed validation after one repair attempt') from e
+                except (ValueError,ValidationError) as e:raise InvalidResponse(f"Structured response failed validation after one repair attempt: {_validation_issue(e)}") from e
         return {'binding':binding,'prompt':prompt,'router_decision_reason':reason,'result':result,'structured':parsed,'repair_attempted':repair,'fallback_used':fallback_used}
     def stream(self,agent_type,history,binding_id=None,context=''):
         if agent_type!='GENERAL_CHAT':

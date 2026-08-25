@@ -14,6 +14,7 @@ env/
 # Frontend dependencies and builds
 frontend/node_modules/
 frontend/dist/
+*.tsbuildinfo
 
 # Raw datasets, uploads, analysis outputs and generated test artifacts
 data/**

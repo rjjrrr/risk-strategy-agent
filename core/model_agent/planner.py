@@ -43,8 +43,6 @@ class PlannerAgent:
         recent = [row for row in experiments if row.get("decision") in {"REJECT", "REVIEW"}][-2:]
         if len(recent) == 2:
             return "TWO_ROUNDS_WITHOUT_MATERIAL_IMPROVEMENT"
-        if not high_confidence_remaining:
-            return "HIGH_CONFIDENCE_HYPOTHESES_EXHAUSTED"
         if state.get("budget", {}).get("experiments", 0) <= 0:
             return "EXPERIMENT_BUDGET_EXHAUSTED"
         return None

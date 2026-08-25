@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json, os, threading, time, uuid
+import json, os, re, threading, time, uuid
 from typing import Any, Iterator
 
 from core.context import ContextRequest
@@ -14,7 +14,7 @@ from .. import config
 from .analysis_service import DATASETS
 from . import context_service
 
-DB_PATH=config.RUNTIME_DIR/'agent_chat.sqlite3'; bindings=BindingStore(DB_PATH); prompts=PromptRegistry(DB_PATH); store=ChatStore(DB_PATH); runtime=LLMRuntime(bindings,prompts)
+DB_PATH=config.RUNTIME_DIR/'agent_chat.sqlite3'; bindings=BindingStore(DB_PATH); bindings.ensure_zhipu_default(); prompts=PromptRegistry(DB_PATH); store=ChatStore(DB_PATH); runtime=LLMRuntime(bindings,prompts)
 legacy_builder=AgentContextBuilder(int(os.getenv('MAX_CONTEXT_ITEMS','30')),int(os.getenv('MAX_CONTEXT_CHARS','12000'))); cancellations:dict[str,threading.Event]={}
 
 def _legacy_source(conversation):
@@ -39,6 +39,14 @@ def _tools(ctx):
 def _history(cid,limit=8):
     rows=[{'role':x['role'],'content':x['content']} for x in store.messages(cid) if x['role'] in ('user','assistant') and x['status'] in ('SUCCESS','CANCELLED')]
     return rows[-limit:]
+def _execution_request(text):
+    value=str(text or '').lower()
+    actions=(r'开始',r'马上',r'立即',r'执行',r'运行',r'跑一轮',r'挖掘',r'训练',r'建模',r'生成特征',r'做实验',r'start',r'run',r'execute',r'train',r'mine')
+    objects=(r'挖掘',r'特征',r'实验',r'模型',r'分析',r'规则',r'feature',r'experiment',r'model',r'analysis',r'rule')
+    return any(re.search(x,value) for x in actions) and any(re.search(x,value) for x in objects)
+def _execution_notice():
+    return ('未执行任何挖掘或实验。当前选择的是“通用对话助手”，它只能读取既有摘要并解释结果，不能生成候选特征、训练模型或启动实验。'
+            '请切换到“风险分析助手”生成结构化候选并人工保存；随后到“候选特征”完成编译、生成和验证，再到“模型实验”或“实验决策助手”运行可审计实验。')
 def _error(exc):return getattr(exc,'code','PROVIDER_ERROR'),str(exc)[:300]
 
 def _governance(dataset_id):
@@ -101,6 +109,10 @@ def _audit(conversation,message,agent_type,binding,prompt,ctx,started,success,er
 
 def send(cid,content,agent_type=None,binding_id=None,attachments=None,parent_message_id=None,context_options=None,focus_fields=None):
     conv=store.conversation(cid);agent_type=agent_type or conv['agent_type'];binding_id=binding_id or conv.get('default_binding_id');attachments=attachments or [];store.update_conversation(cid,{'agent_type':agent_type,'default_binding_id':binding_id});user=store.add_message(conversation_id=cid,role='user',content=content,attachments=attachments,agent_type=agent_type,status='SUCCESS',parent_message_id=parent_message_id);ctx=_context(conv,agent_type,attachments,content,context_options,focus_fields);assistant=store.add_message(conversation_id=cid,role='assistant',agent_type=agent_type,status='PENDING',parent_message_id=parent_message_id,context_id=ctx['summary'].get('context_id'),context_hash=ctx['hash']);started=time.perf_counter();binding,prompt=_selected_metadata(binding_id,agent_type)
+    if agent_type=='GENERAL_CHAT' and _execution_request(content):
+        notice=_execution_notice();call=_audit(conv,assistant,agent_type,None,prompt,ctx,started,True,runtime_type='DETERMINISTIC',error_summary=None)
+        assistant=store.update_message(assistant['message_id'],{'content':notice,'prompt_version':prompt.get('prompt_id') if prompt else None,'tool_calls':[],'proposal_ids':[],'latency_ms':call['latency_ms'],'status':'SUCCESS','execution_mode':'DETERMINISTIC','runtime_type':'DETERMINISTIC','structured_output_status':'NOT_APPLICABLE'})
+        return {'user_message':user,'assistant_message':assistant,'proposals':[],'trace':call,'structured':None,'context':ctx['summary']}
     try:
         result=runtime.chat(agent_type,_history(cid),binding_id,ctx['text']);binding=result['binding'];prompt=result['prompt'];response=result['result'];usage=response.get('usage',{});rtype=_runtime_type(binding,response);proposals=_proposal(agent_type,conv,assistant,result['structured']);call=_audit(conv,assistant,agent_type,binding,prompt,ctx,started,True,router_reason=result['router_decision_reason'],usage=usage,runtime_type=rtype);assistant=store.update_message(assistant['message_id'],{'content':response['content'],'binding_id':binding['binding_id'],'provider':binding['provider'],'model':response.get('model',binding['model']),'prompt_version':prompt['prompt_id'],'tool_calls':_tools(ctx),'proposal_ids':[p['proposal_id'] for p in proposals],'latency_ms':call['latency_ms'],'prompt_tokens':usage.get('prompt_tokens'),'completion_tokens':usage.get('completion_tokens'),'total_tokens':usage.get('total_tokens'),'status':'SUCCESS','execution_mode':rtype,'runtime_type':rtype,'structured_output_status':'VALIDATED' if result['structured'] else 'NOT_APPLICABLE'});return {'user_message':user,'assistant_message':assistant,'proposals':proposals,'trace':call,'structured':result['structured'],'context':ctx['summary']}
     except Exception as exc:
@@ -108,7 +120,7 @@ def send(cid,content,agent_type=None,binding_id=None,attachments=None,parent_mes
 
 def stream(cid,content,agent_type=None,binding_id=None,attachments=None,parent_message_id=None,context_options=None,focus_fields=None)->Iterator[str]:
     selected=agent_type or store.conversation(cid)['agent_type']
-    if selected!='GENERAL_CHAT':
+    if selected!='GENERAL_CHAT' or _execution_request(content):
         try:
             result=send(cid,content,agent_type,binding_id,attachments,parent_message_id,context_options,focus_fields); yield _sse('start',{'user_message':result['user_message'],'assistant_message':{**result['assistant_message'],'content':''}});yield _sse('delta',{'message_id':result['assistant_message']['message_id'],'content':result['assistant_message']['content']});yield _sse('done',{'message':result['assistant_message'],'proposals':result['proposals'],'trace':result['trace'],'structured':result['structured'],'context':result['context']})
         except Exception as exc:yield _sse('error',{'message':{'status':'FAILED','error':str(exc)}})
@@ -137,9 +149,12 @@ def decide_proposal(pid,accept):
     if did and p['proposal_type']=='HYPOTHESIS_CREATE':
         oid=f"H_LLM_{uuid.uuid4().hex[:10]}";HypothesisRegistry(config.MODEL_AGENT_DIR/did).add({'hypothesis_id':oid,'title':payload.get('title'),'evidence_type':'LLM_PROPOSAL','evidence':payload.get('evidence'),'risk_mechanism':payload.get('risk_mechanism'),'source_fields':payload.get('source_fields',[]),'candidate_features':[],'expected_direction':payload.get('expected_direction'),'expected_benefit':'Pending deterministic validation','confidence':payload.get('confidence'),'estimated_cost':payload.get('estimated_cost'),'status':'PROPOSED','related_experiments':[],'source_message_id':p['message_id']})
     elif did and p['proposal_type']=='FEATURE_CANDIDATE':
-        oid=f"F_LLM_{uuid.uuid4().hex[:10]}";FeatureRegistry(config.MODEL_AGENT_DIR/did).add({'feature_id':oid,'feature_name':payload.get('feature_name'),'feature_version':'1.0','feature_type':payload.get('feature_type','RAW'),'source_fields':payload.get('source_fields',[]),'source_feature_ids':[],'semantic_domain':'LLM_PROPOSAL','semantic_meaning':payload.get('semantic_meaning'),'formula':payload.get('formula'),'calculation_description':payload.get('semantic_meaning'),'generation_reason':p['reason'],'hypothesis_id':None,'experiment_id':None,'expected_direction':payload.get('expected_direction'),'status':'PROPOSED','validation_result':validation,'lr_eligible':False,'lgbm_eligible':False,'approved':False,'source_message_id':p['message_id']})
-    is_analysis='validation' in payload
-    return store.update_proposal(pid,('SAVED' if oid else 'ACCEPTED') if is_analysis else ('EXECUTED' if oid else 'ACCEPTED'),oid)
+        # A saved LLM suggestion is a FeatureSpec, not a generated model feature.
+        # Import lazily because feature_engine_service also reads this chat store.
+        from . import feature_engine_service
+        oid=feature_engine_service.spec_from_proposal(did,pid)['feature_spec_id']
+    is_saved_proposal=p['proposal_type'] in {'HYPOTHESIS_CREATE','FEATURE_CANDIDATE'} and bool(oid)
+    return store.update_proposal(pid,'SAVED' if is_saved_proposal else ('ACCEPTED' if not oid else 'EXECUTED'),oid)
 def binding_views():
     calls=store.calls({});rows=[]
     for b in bindings.all():
